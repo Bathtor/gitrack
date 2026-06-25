@@ -1,0 +1,13 @@
+id = "019efe53-702a-75f2-bdd2-77180fb5adde"
+ref = "gitrack-zk2"
+title = "Add bd/beads JSONL importer"
+body = "Import bd/beads JSONL exports into the Git-native issue files without making bd part of the core storage model."
+status = "open"
+type = "task"
+priority = 3
+labels = [
+    "compatibility",
+    "importer",
+]
+created_at = "2026-06-25T10:29:01.61079Z"
+updated_at = "2026-06-25T11:40:51.183595Z"

@@ -1,0 +1,13 @@
+id = "019efe81-b7e4-7d41-a3d1-767c057a7575"
+ref = "gitrack-mw6"
+title = "Introduce domain newtypes for issue metadata"
+body = "Replace raw strings for issue refs, statuses, issue kinds, and configured issue directories with domain types that own validation and make invalid states harder to construct."
+status = "open"
+type = "task"
+priority = 4
+labels = [
+    "refactor",
+    "types",
+]
+created_at = "2026-06-25T11:19:34.628663Z"
+updated_at = "2026-06-25T11:41:01.519763Z"
