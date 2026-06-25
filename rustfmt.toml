@@ -1,13 +1,7 @@
 max_width = 100
 edition = "2024"
 
-imports_granularity = "Crate"
-imports_layout = "HorizontalVertical"
-
 fn_params_layout = "Tall"
-binop_separator = "Front"
 
 use_field_init_shorthand = false
 force_explicit_abi = true
-reorder_impl_items = false
-wrap_comments = false

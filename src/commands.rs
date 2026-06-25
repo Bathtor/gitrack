@@ -12,12 +12,7 @@ use crate::{
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
-        ExportView,
-        InitView,
-        IssueListView,
-        emit_issue,
-        print_issue_detail,
-        print_issue_summary,
+        ExportView, InitView, IssueListView, emit_issue, print_issue_detail, print_issue_summary,
         print_json,
     },
 };

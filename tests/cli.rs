@@ -17,41 +17,41 @@ fn cli_tracks_blocked_and_ready_work() {
 
     run_success(&workdir, &["init", "--issue-dir", "issues", "--json"]);
 
-    let blocker = run_json(&workdir, &["--json", "create", "Set up storage"]);
-    let blocker_ref = issue_ref(&blocker);
-    assert!(blocker_ref.starts_with("project-"));
+    let setup_issue = run_json(&workdir, &["--json", "create", "Set up storage"]);
+    let setup_ref = issue_ref(&setup_issue);
+    assert!(setup_ref.starts_with("project-"));
 
-    let blocked = run_json(
+    let command_issue = run_json(
         &workdir,
         &[
             "--json",
             "create",
             "Build command flow",
             "--blocked-by",
-            &blocker_ref,
+            &setup_ref,
         ],
     );
-    let blocked_ref = issue_ref(&blocked);
-    assert!(blocked_ref.starts_with("project-"));
-    assert_ne!(blocked_ref, blocker_ref);
+    let command_ref = issue_ref(&command_issue);
+    assert!(command_ref.starts_with("project-"));
+    assert_ne!(command_ref, setup_ref);
     assert_eq!(
-        blocked["blocked_by"][0]["ref"]
+        command_issue["blocked_by"][0]["ref"]
             .as_str()
             .expect("blocker ref"),
-        blocker_ref
+        setup_ref
     );
-    assert_eq!(blocked["ready"], false);
+    assert_eq!(command_issue["ready"], false);
 
     let ready_before_close = run_json(&workdir, &["--json", "ready"]);
-    assert_refs(&ready_before_close, &[blocker_ref.as_str()]);
+    assert_refs(&ready_before_close, &[setup_ref.as_str()]);
 
-    run_json(&workdir, &["--json", "close", &blocker_ref]);
+    run_json(&workdir, &["--json", "close", &setup_ref]);
 
     let ready_after_close = run_json(&workdir, &["--json", "ready"]);
-    assert_refs(&ready_after_close, &[blocked_ref.as_str()]);
+    assert_refs(&ready_after_close, &[command_ref.as_str()]);
 
     let export = run_json(&workdir, &["export", "json"]);
-    assert_refs(&export, &[blocker_ref.as_str(), blocked_ref.as_str()]);
+    assert_refs(&export, &[setup_ref.as_str(), command_ref.as_str()]);
 }
 
 #[test]
