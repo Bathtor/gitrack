@@ -1,0 +1,9 @@
+id = "019efeae-5394-75f3-b2aa-eb0ae20bf441"
+ref = "gitrack-wxk"
+title = "Improve human-readable output formatting"
+body = "Explore and implement clearer human-readable output formatting, likely taking inspiration from beads. Exact layout, fields, and defaults should be discussed when this task is picked up."
+status = "open"
+type = "task"
+priority = 3
+created_at = "2026-06-25T12:08:18.068593Z"
+updated_at = "2026-06-25T12:08:18.068593Z"
