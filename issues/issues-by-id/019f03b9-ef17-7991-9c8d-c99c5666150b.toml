@@ -1,13 +1,25 @@
 id = "019f03b9-ef17-7991-9c8d-c99c5666150b"
 ref = "gitrack-ytr"
 title = "Enforce DCO sign-offs in CI"
-body = "Add CI enforcement for Developer Certificate of Origin sign-offs so contributor commits are checked automatically. Investigate how the check should behave with the preferred squash-and-merge flow, including whether to require signed-off individual PR commits, the squash commit message, or both."
-status = "open"
+body = """
+Enforce DCO sign-offs through the PR description, which fits the repository's squash-and-merge workflow better than checking individual commits.
+
+R1. Keep this small CI/docs change on branch codex/gitrack-ytr-pr-dco so the PR can exercise the workflow.
+R2. Add a dedicated .github/workflows/pr-dco.yml workflow.
+R3. Run the workflow on pull_request for opened, edited, reopened, synchronize, and ready_for_review events.
+R4. Do not check out PR code; only inspect github.event.pull_request.body.
+R5. Require a PR description line matching Signed-off-by: Name <email>.
+R6. Do not add push-to-main DCO checks.
+R7. Update CONTRIBUTING.md to document PR-description DCO sign-offs for the squash-merge workflow.
+R8. Validate the workflow regex locally and run git diff --check."""
+status = "in-progress"
+status_reason = "in review"
 type = "task"
 priority = 2
 labels = [
     "ci",
     "licensing",
 ]
+assignee = "codex"
 created_at = "2026-06-26T11:39:04.855896Z"
-updated_at = "2026-06-26T11:39:04.855896Z"
+updated_at = "2026-06-26T18:03:24.720573Z"

@@ -3,14 +3,17 @@
 By contributing to gitrack, you agree that your contribution is provided under
 the same licence as the project: GPL-2.0-or-later.
 
-All commits should include a Developer Certificate of Origin sign-off:
+Pull requests should include a Developer Certificate of Origin sign-off in
+their description:
 
 ```text
 Signed-off-by: Your Name <you@example.com>
 ```
 
-Use `git commit -s` to add the sign-off automatically. The sign-off certifies
-the Developer Certificate of Origin 1.1:
+This repository prefers squash-and-merge, so CI checks the pull request
+description instead of individual commit messages. When merging, preserve the
+sign-off in the final squash commit message. The sign-off certifies the
+Developer Certificate of Origin 1.1:
 
 https://developercertificate.org/
 
