@@ -9,6 +9,15 @@ The tool is designed to be predictable for coding agents: command names are
 stable, JSON output is deterministic, workflows are non-interactive, and errors
 are intended to be explicit.
 
+## Contents
+
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Storage Layout](#storage-layout)
+- [Common Workflows](#common-workflows)
+- [Agent Instructions](#agent-instructions)
+- [Licence](#licence)
+
 ## Install
 
 From a checkout of this repository:
@@ -90,6 +99,8 @@ status, status reason, type, priority, labels, assignee, blockers, timestamps,
 and comments.
 
 ## Common Workflows
+
+[Bootstrap](#bootstrap-tracking) | [Find work](#find-work) | [Create and organise](#create-and-organise-work) | [Claim and update](#claim-and-update-work) | [Manage blockers](#manage-blockers) | [Close or reopen](#close-or-reopen-work) | [Export](#export-for-agents-and-tools)
 
 ### Bootstrap Tracking
 
