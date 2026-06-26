@@ -1,13 +1,37 @@
 id = "019efe81-b7e4-7d41-a3d1-767c057a7575"
 ref = "gitrack-mw6"
 title = "Introduce domain newtypes for issue metadata"
-body = "Replace raw strings for issue refs, statuses, issue kinds, and configured issue directories with domain types that own validation and make invalid states harder to construct."
-status = "open"
+body = """
+Problem
+Replace raw strings for issue refs, issue kinds, and configured issue directories with domain types that own validation and make invalid states harder to construct. Statuses are already represented as `IssueStatus`, so this task keeps that enum as-is.
+
+Agreed plan
+1. Introduce persisted domain newtypes in `model.rs`: `IssueRef` for issue refs and config `ref_prefix`, `IssueKind` for issue `type` and config `default_type`, and `IssueDir` for config `issue_dir`.
+2. Move validation ownership into those types: `IssueRef::parse(...)`, `IssueKind::parse(...)`, and `IssueDir::parse(...)`.
+3. Keep TOML and JSON shapes unchanged by serialising/deserialising newtypes as plain strings.
+4. Update store, commands, and views to use `.as_str()` or `Display` at string boundaries, while CLI arguments remain raw strings until parsed.
+5. Add focused tests for invalid refs, issue dirs, and issue kinds, and keep existing CLI/store behaviour intact.
+
+Estimated implementation size
+- Newtypes and serde impls: 120-180 LOC.
+- Store/command/view adaptations: 150-250 LOC.
+- Tests: 100-180 LOC.
+- Total expected change: 370-610 LOC, below the 1000 LOC split threshold."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 4
 labels = [
     "refactor",
     "types",
 ]
+assignee = "codex"
 created_at = "2026-06-25T11:19:34.628663Z"
-updated_at = "2026-06-25T11:41:01.519763Z"
+updated_at = "2026-06-26T10:45:55.940787Z"
+closed_at = "2026-06-26T10:45:55.940787Z"
+
+[[comments]]
+id = "019f0389-4664-7b81-aac8-1db915502019"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T10:45:55.940787Z"

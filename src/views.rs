@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     agents::AgentsUpdateResult,
     error::{Result, SerialiseJsonSnafu, WriteStdoutSnafu},
-    model::{Comment, Config, Issue, IssueStatus},
+    model::{Comment, Config, Issue, IssueKind, IssueRef, IssueStatus},
     readiness::{issue_is_ready, issue_map},
     store::Store,
 };
@@ -170,13 +170,13 @@ impl IssueListView {
 struct IssueView {
     id: Uuid,
     #[serde(rename = "ref")]
-    reference: String,
+    reference: IssueRef,
     title: String,
     body: String,
     status: IssueStatus,
     status_reason: Option<String>,
     #[serde(rename = "type")]
-    kind: String,
+    kind: IssueKind,
     priority: u8,
     labels: Vec<String>,
     assignee: Option<String>,
@@ -220,7 +220,7 @@ impl IssueView {
 struct DependencyView {
     id: Uuid,
     #[serde(rename = "ref")]
-    reference: Option<String>,
+    reference: Option<IssueRef>,
 }
 
 impl DependencyView {

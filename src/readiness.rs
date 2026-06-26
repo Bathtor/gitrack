@@ -17,7 +17,7 @@ pub(crate) fn issue_is_ready(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Re
     for blocker_id in &issue.blocked_by {
         let blocker = by_id.get(blocker_id).ok_or_else(|| {
             MissingDependencySnafu {
-                issue: issue.reference.clone(),
+                issue: issue.reference.to_string(),
                 blocker: *blocker_id,
             }
             .build()

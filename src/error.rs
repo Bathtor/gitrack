@@ -117,6 +117,9 @@ pub enum Error {
     #[snafu(display("invalid issue directory `{path}`: {reason}"))]
     InvalidIssueDir { path: String, reason: &'static str },
 
+    #[snafu(display("invalid issue kind `{kind}`: {reason}"))]
+    InvalidIssueKind { kind: String, reason: &'static str },
+
     #[snafu(display("invalid issue file name {}: {reason}", path.display()))]
     InvalidIssueFileName { path: PathBuf, reason: &'static str },
 

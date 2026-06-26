@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     agents::update_agents_file,
     error::{InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
-    model::{Comment, Issue, IssueStatus, NewIssue, now_rfc3339},
+    model::{Comment, Issue, IssueKind, IssueRef, IssueStatus, NewIssue, now_rfc3339},
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
@@ -375,6 +375,7 @@ fn create(args: CreateArgs, json: bool) -> Result<()> {
     let id = Uuid::now_v7();
     let reference = match args.reference {
         Some(reference) => {
+            let reference = IssueRef::parse(reference)?;
             Store::ensure_ref_available(&issues, &reference, None)?;
             reference
         }
@@ -382,9 +383,10 @@ fn create(args: CreateArgs, json: bool) -> Result<()> {
     };
     let blocked_by = resolve_many(&issues, args.blocked_by)?;
     let now = now_rfc3339()?;
-    let issue_type = args
-        .issue_type
-        .unwrap_or_else(|| store.config.default_issue_type.clone());
+    let issue_type = match args.issue_type {
+        Some(issue_type) => IssueKind::parse(issue_type)?,
+        None => store.config.default_issue_type.clone(),
+    };
     let priority = args.priority.unwrap_or(store.config.default_priority);
     let issue = Issue::new(NewIssue {
         id,
@@ -475,10 +477,14 @@ fn update(args: UpdateArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
     let mut issues = store.load_issues()?;
 
-    if let Some(reference) = &args.reference {
+    let reference = if let Some(reference) = args.reference {
+        let reference = IssueRef::parse(reference)?;
         let issue = Store::resolve_issue(&issues, &args.issue)?;
-        Store::ensure_ref_available(&issues, reference, Some(issue.id))?;
-    }
+        Store::ensure_ref_available(&issues, &reference, Some(issue.id))?;
+        Some(reference)
+    } else {
+        None
+    };
 
     let issue = Store::resolve_issue_mut(&mut issues, &args.issue)?;
     if let Some(title) = args.title {
@@ -505,7 +511,7 @@ fn update(args: UpdateArgs, json: bool) -> Result<()> {
         issue.status_reason = None;
     }
     if let Some(issue_type) = args.issue_type {
-        issue.kind = issue_type;
+        issue.kind = IssueKind::parse(issue_type)?;
     }
     if let Some(priority) = args.priority {
         issue.priority = priority;
@@ -519,7 +525,7 @@ fn update(args: UpdateArgs, json: bool) -> Result<()> {
     if args.assignee.is_some() {
         issue.assignee = normalise_optional(args.assignee);
     }
-    if let Some(reference) = args.reference {
+    if let Some(reference) = reference {
         issue.reference = reference;
     }
 
@@ -535,6 +541,7 @@ fn rename_ref(args: RefArgs, json: bool) -> Result<()> {
     let mut issues = store.load_issues()?;
     let issue = Store::resolve_issue(&issues, &args.issue)?;
     let reference = if let Some(reference) = args.reference {
+        let reference = IssueRef::parse(reference)?;
         Store::ensure_ref_available(&issues, &reference, Some(issue.id))?;
         reference
     } else {
@@ -559,7 +566,7 @@ fn claim(args: ClaimArgs, json: bool) -> Result<()> {
     ensure!(
         !issue.status.is_resolved(),
         ResolvedIssueSnafu {
-            reference: issue.reference.clone(),
+            reference: issue.reference.to_string(),
             status: issue.status.to_string()
         }
     );
@@ -667,7 +674,7 @@ fn add_blockers(issue_identifier: &str, blockers: Vec<String>, json: bool) -> Re
         ensure!(
             blocker_id != issue.id,
             SelfDependencySnafu {
-                issue: issue.reference.clone()
+                issue: issue.reference.to_string()
             }
         );
         if !issue.blocked_by.contains(&blocker_id) {
@@ -765,11 +772,11 @@ mod tests {
     fn test_issue(reference: &str, status: IssueStatus) -> Issue {
         Issue::new(NewIssue {
             id: Uuid::now_v7(),
-            reference: reference.to_string(),
+            reference: IssueRef::parse(reference).expect("valid ref"),
             title: format!("Issue {reference}"),
             body: String::new(),
             status,
-            kind: "task".to_string(),
+            kind: IssueKind::parse("task").expect("valid kind"),
             priority: 3,
             labels: Vec::new(),
             assignee: None,

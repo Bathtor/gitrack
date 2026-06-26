@@ -5,7 +5,7 @@ use std::{
     env,
     ffi::OsStr,
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 use snafu::{ResultExt, ensure};
@@ -15,13 +15,13 @@ use crate::{
     error::{
         AlreadyInitialisedSnafu, AmbiguousIssueSnafu, CanonicalisePathSnafu, CreateDirSnafu,
         CreateSymlinkSnafu, CurrentDirSnafu, DuplicateIssueIdSnafu, DuplicateIssueRefSnafu,
-        InvalidIssueDirSnafu, InvalidIssueFileNameSnafu, InvalidRefAliasSnafu, InvalidRefSnafu,
-        IssueFileNameMismatchSnafu, IssueNotFoundSnafu, MissingRefAliasSnafu, MissingStoreSnafu,
-        NotGitRepositorySnafu, ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu, ReadLinkSnafu,
-        ReadMetadataSnafu, RefAliasTargetMismatchSnafu, RefExistsSnafu, RemoveFileSnafu, Result,
-        SerialiseTomlSnafu, WriteFileSnafu,
+        InvalidIssueFileNameSnafu, InvalidRefAliasSnafu, IssueFileNameMismatchSnafu,
+        IssueNotFoundSnafu, MissingRefAliasSnafu, MissingStoreSnafu, NotGitRepositorySnafu,
+        ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu, ReadLinkSnafu, ReadMetadataSnafu,
+        RefAliasTargetMismatchSnafu, RefExistsSnafu, RemoveFileSnafu, Result, SerialiseTomlSnafu,
+        WriteFileSnafu,
     },
-    model::{Config, Issue},
+    model::{Config, Issue, IssueDir, IssueRef},
 };
 
 const CONFIG_DIR: &str = ".gitrack";
@@ -53,9 +53,9 @@ impl Store {
         issue_dir_config: String,
     ) -> Result<Self> {
         let root = find_git_root(start)?;
-        validate_issue_dir(&issue_dir_config)?;
+        let issue_dir_config = IssueDir::parse(issue_dir_config)?;
         let config_dir = root.join(CONFIG_DIR);
-        let issues_dir = root.join(&issue_dir_config);
+        let issues_dir = root.join(issue_dir_config.as_path());
         let config_path = config_dir.join(CONFIG_FILE);
 
         ensure!(
@@ -77,10 +77,7 @@ impl Store {
         })?;
 
         let prefix = match explicit_prefix {
-            Some(prefix) => {
-                validate_ref(&prefix)?;
-                prefix
-            }
+            Some(prefix) => IssueRef::parse(prefix)?,
             None => derive_ref_prefix(&root)?,
         };
         let config = Config::new(prefix, issue_dir_config);
@@ -118,8 +115,7 @@ impl Store {
         let config: Config = toml::from_str(&config_text).context(ParseTomlSnafu {
             path: config_path.clone(),
         })?;
-        validate_issue_dir(&config.issue_dir)?;
-        let issues_dir = root.join(&config.issue_dir);
+        let issues_dir = root.join(config.issue_dir.as_path());
 
         Ok(Self {
             root,
@@ -167,7 +163,6 @@ impl Store {
                     issue_id: issue.id
                 }
             );
-            validate_ref(&issue.reference)?;
             if let Some(first_path) = paths_by_id.insert(issue.id, path.clone()) {
                 return DuplicateIssueIdSnafu {
                     id: issue.id,
@@ -178,7 +173,7 @@ impl Store {
             }
             if let Some(first_id) = ids_by_ref.insert(issue.reference.clone(), issue.id) {
                 return DuplicateIssueRefSnafu {
-                    reference: issue.reference,
+                    reference: issue.reference.to_string(),
                     first_id,
                     duplicate_id: issue.id,
                 }
@@ -193,7 +188,6 @@ impl Store {
     }
 
     pub(crate) fn save_issue(&self, issue: &Issue) -> Result<()> {
-        validate_ref(&issue.reference)?;
         let path = self.issue_path(issue.id);
         fs::create_dir_all(&self.issues_dir).context(CreateDirSnafu {
             path: self.issues_dir.clone(),
@@ -217,7 +211,7 @@ impl Store {
         self.issues_dir.join(ISSUES_BY_ID_DIR)
     }
 
-    pub(crate) fn ref_alias_path(&self, reference: &str) -> PathBuf {
+    pub(crate) fn ref_alias_path(&self, reference: &IssueRef) -> PathBuf {
         self.issues_dir.join(format!("{reference}.toml"))
     }
 
@@ -233,7 +227,7 @@ impl Store {
 
         let matches: Vec<&Issue> = issues
             .iter()
-            .filter(|issue| issue.reference == identifier)
+            .filter(|issue| issue.reference.as_str() == identifier)
             .collect();
 
         match matches.as_slice() {
@@ -272,13 +266,12 @@ impl Store {
 
     pub(crate) fn ensure_ref_available(
         issues: &[Issue],
-        reference: &str,
+        reference: &IssueRef,
         except: Option<Uuid>,
     ) -> Result<()> {
-        validate_ref(reference)?;
         let exists = issues
             .iter()
-            .any(|issue| issue.reference == reference && Some(issue.id) != except);
+            .any(|issue| &issue.reference == reference && Some(issue.id) != except);
         ensure!(
             !exists,
             RefExistsSnafu {
@@ -288,14 +281,14 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn generated_ref(&self, issues: &[Issue]) -> Result<String> {
+    pub(crate) fn generated_ref(&self, issues: &[Issue]) -> Result<IssueRef> {
         let existing_refs = issues
             .iter()
             .map(|issue| issue.reference.as_str())
             .collect::<HashSet<_>>();
         let token = uuid_to_base36(Uuid::now_v7());
 
-        generated_ref_for_token(&self.config.ref_prefix, &token, &existing_refs)
+        generated_ref_for_token(self.config.ref_prefix.as_str(), &token, &existing_refs)
     }
 
     /// Ensure the issue's current ref has a valid alias, creating it when absent.
@@ -391,7 +384,6 @@ impl Store {
             }
 
             let reference = alias_reference_from_path(&path)?;
-            validate_ref(&reference)?;
             let Some(id) = refs_by_name.get(reference.as_str()) else {
                 return InvalidRefAliasSnafu {
                     path,
@@ -406,7 +398,7 @@ impl Store {
     }
 
     /// Validate one alias as a relative symlink to the canonical UUID file.
-    fn validate_alias_path(path: &Path, reference: &str, id: Uuid) -> Result<()> {
+    fn validate_alias_path(path: &Path, reference: &IssueRef, id: Uuid) -> Result<()> {
         let metadata = match fs::symlink_metadata(path) {
             Ok(metadata) => metadata,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
@@ -475,109 +467,6 @@ pub(crate) fn normalise_optional(value: Option<String>) -> Option<String> {
     })
 }
 
-pub(crate) fn validate_ref(reference: &str) -> Result<()> {
-    ensure!(
-        !reference.trim().is_empty(),
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "must not be empty"
-        }
-    );
-    ensure!(
-        reference == reference.trim(),
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "must not have leading or trailing whitespace"
-        }
-    );
-    ensure!(
-        reference.chars().all(is_ref_char),
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "only ASCII letters, digits, dots, underscores, and dashes are supported"
-        }
-    );
-    ensure!(
-        reference != "." && reference != "..",
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "must be usable as a file name"
-        }
-    );
-    ensure!(
-        reference != ISSUES_BY_ID_DIR,
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "`issues-by-id` is reserved for canonical issue files"
-        }
-    );
-    ensure!(
-        !reference.to_ascii_lowercase().ends_with(".toml"),
-        InvalidRefSnafu {
-            reference: reference.to_string(),
-            reason: "must not end in .toml; alias paths add that extension"
-        }
-    );
-    Ok(())
-}
-
-pub(crate) fn validate_issue_dir(path: &str) -> Result<()> {
-    ensure!(
-        !path.trim().is_empty(),
-        InvalidIssueDirSnafu {
-            path: path.to_string(),
-            reason: "must not be empty"
-        }
-    );
-    ensure!(
-        path == path.trim(),
-        InvalidIssueDirSnafu {
-            path: path.to_string(),
-            reason: "must not have leading or trailing whitespace"
-        }
-    );
-
-    let path_value = Path::new(path);
-    ensure!(
-        !path_value.is_absolute(),
-        InvalidIssueDirSnafu {
-            path: path.to_string(),
-            reason: "must be relative to the Git root"
-        }
-    );
-
-    let mut has_normal_component = false;
-    for component in path_value.components() {
-        match component {
-            Component::Normal(_) => has_normal_component = true,
-            Component::CurDir => {}
-            Component::ParentDir => {
-                InvalidIssueDirSnafu {
-                    path: path.to_string(),
-                    reason: "must not contain parent-directory traversal",
-                }
-                .fail()?;
-            }
-            Component::Prefix(_) | Component::RootDir => {
-                InvalidIssueDirSnafu {
-                    path: path.to_string(),
-                    reason: "must be relative to the Git root",
-                }
-                .fail()?;
-            }
-        }
-    }
-
-    ensure!(
-        has_normal_component,
-        InvalidIssueDirSnafu {
-            path: path.to_string(),
-            reason: "must name a directory"
-        }
-    );
-    Ok(())
-}
-
 fn find_git_root(start: &Path) -> Result<PathBuf> {
     let start = normalise_start(start)?;
     for ancestor in start.ancestors() {
@@ -629,7 +518,7 @@ fn issue_id_from_path(path: &Path) -> Result<Uuid> {
 }
 
 /// Extract the logical ref from a top-level `<ref>.toml` alias path.
-fn alias_reference_from_path(path: &Path) -> Result<String> {
+fn alias_reference_from_path(path: &Path) -> Result<IssueRef> {
     let Some(file_name) = path.file_name().and_then(OsStr::to_str) else {
         return InvalidRefAliasSnafu {
             path: path.to_path_buf(),
@@ -654,7 +543,7 @@ fn alias_reference_from_path(path: &Path) -> Result<String> {
         .fail();
     };
 
-    Ok(reference.to_string())
+    IssueRef::parse(reference)
 }
 
 /// Build the tracked relative symlink target used for issue ref aliases.
@@ -698,13 +587,13 @@ fn generated_ref_for_token(
     prefix: &str,
     token: &str,
     existing_refs: &HashSet<&str>,
-) -> Result<String> {
+) -> Result<IssueRef> {
     let minimum_len = MIN_GENERATED_REF_SUFFIX_LEN.min(token.len());
     for suffix_len in minimum_len..token.len() {
         let suffix_start = token.len() - suffix_len;
         let candidate = format!("{prefix}-{}", &token[suffix_start..]);
         if !existing_refs.contains(candidate.as_str()) {
-            return Ok(candidate);
+            return IssueRef::parse(candidate);
         }
     }
 
@@ -715,7 +604,7 @@ fn generated_ref_for_token(
             reference: candidate
         }
     );
-    Ok(candidate)
+    IssueRef::parse(candidate)
 }
 
 fn uuid_to_base36(id: Uuid) -> String {
@@ -736,7 +625,7 @@ fn base36_encode(mut value: u128) -> String {
     digits.iter().rev().collect()
 }
 
-fn derive_ref_prefix(root: &Path) -> Result<String> {
+fn derive_ref_prefix(root: &Path) -> Result<IssueRef> {
     let raw_name = root.file_name().and_then(OsStr::to_str).unwrap_or("issues");
     let mut prefix = String::new();
     let mut previous_was_dash = false;
@@ -751,13 +640,7 @@ fn derive_ref_prefix(root: &Path) -> Result<String> {
         }
     }
 
-    let prefix = prefix.trim_matches('-').to_string();
-    validate_ref(&prefix)?;
-    Ok(prefix)
-}
-
-fn is_ref_char(character: char) -> bool {
-    character.is_ascii_alphanumeric() || character == '.' || character == '_' || character == '-'
+    IssueRef::parse(prefix.trim_matches('-').to_string())
 }
 
 #[cfg(test)]
@@ -765,7 +648,7 @@ mod tests {
     use super::*;
     use crate::{
         error::Error,
-        model::{IssueStatus, NewIssue, now_rfc3339},
+        model::{IssueDir, IssueKind, IssueRef, IssueStatus, NewIssue, now_rfc3339},
     };
     use std::fs;
 
@@ -782,7 +665,7 @@ mod tests {
 
     #[test]
     fn dotted_child_refs_are_valid() {
-        assert!(validate_ref("gitrack-a1b2c3d4.1").is_ok());
+        assert!(IssueRef::parse("gitrack-a1b2c3d4.1").is_ok());
     }
 
     #[test]
@@ -791,9 +674,10 @@ mod tests {
         let reference =
             generated_ref_for_token("gitrack", "123abc", &existing_refs).expect("generated ref");
 
-        assert_eq!(reference, "gitrack-abc");
+        assert_eq!(reference.as_str(), "gitrack-abc");
         assert!(
             reference
+                .as_str()
                 .rsplit_once('-')
                 .expect("suffix")
                 .1
@@ -808,7 +692,7 @@ mod tests {
         let reference =
             generated_ref_for_token("gitrack", "123abc", &existing_refs).expect("generated ref");
 
-        assert_eq!(reference, "gitrack-23abc");
+        assert_eq!(reference.as_str(), "gitrack-23abc");
     }
 
     #[test]
@@ -817,7 +701,7 @@ mod tests {
         let reference =
             generated_ref_for_token("gitrack", "1abc", &existing_refs).expect("generated ref");
 
-        assert_eq!(reference, "gitrack-1abc");
+        assert_eq!(reference.as_str(), "gitrack-1abc");
     }
 
     #[test]
@@ -830,8 +714,8 @@ mod tests {
         let store =
             Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string()).expect("initialise store");
 
-        assert_eq!(store.config.ref_prefix, "my-project");
-        assert_eq!(store.config.issue_dir, DEFAULT_ISSUES_DIR);
+        assert_eq!(store.config.ref_prefix.as_str(), "my-project");
+        assert_eq!(store.config.issue_dir.as_str(), DEFAULT_ISSUES_DIR);
         assert!(store.config_path.exists());
         assert!(store.issues_dir.exists());
         assert_eq!(
@@ -885,14 +769,14 @@ mod tests {
         store.save_issue(&issue).expect("save issue");
         let old_alias_path = store.ref_alias_path(&issue.reference);
 
-        issue.reference = "project-renamed".to_string();
+        issue.reference = IssueRef::parse("project-renamed").expect("valid ref");
         store.save_issue(&issue).expect("save renamed issue");
 
         assert!(fs::symlink_metadata(old_alias_path).is_err());
         assert_ref_alias(&store, &issue);
         let issues = store.load_issues().expect("load issues");
         assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0].reference, "project-renamed");
+        assert_eq!(issues[0].reference.as_str(), "project-renamed");
     }
 
     #[test]
@@ -980,7 +864,8 @@ mod tests {
         let (_temp, store) = test_store();
         let issue = test_issue("project-a1b2c3d4");
         store.save_issue(&issue).expect("save issue");
-        let alias_path = store.ref_alias_path("project-extra");
+        let extra_ref = IssueRef::parse("project-extra").expect("valid ref");
+        let alias_path = store.ref_alias_path(&extra_ref);
         let target = ref_alias_target(issue.id);
         create_issue_symlink(&target, &alias_path).expect("create extra ref alias");
 
@@ -991,20 +876,20 @@ mod tests {
 
     #[test]
     fn issue_dir_must_be_relative() {
-        assert!(validate_issue_dir("/tmp/issues").is_err());
+        assert!(IssueDir::parse("/tmp/issues").is_err());
     }
 
     #[test]
     fn issue_dir_must_not_escape_root() {
-        assert!(validate_issue_dir("../issues").is_err());
-        assert!(validate_issue_dir("nested/../../issues").is_err());
+        assert!(IssueDir::parse("../issues").is_err());
+        assert!(IssueDir::parse("nested/../../issues").is_err());
     }
 
     #[test]
     fn refs_must_not_collide_with_reserved_paths() {
-        assert!(validate_ref(ISSUES_BY_ID_DIR).is_err());
-        assert!(validate_ref("project-a1b2c3d4.toml").is_err());
-        assert!(validate_ref("project:a1b2c3d4").is_err());
+        assert!(IssueRef::parse(ISSUES_BY_ID_DIR).is_err());
+        assert!(IssueRef::parse("project-a1b2c3d4.toml").is_err());
+        assert!(IssueRef::parse("project:a1b2c3d4").is_err());
     }
 
     fn test_store() -> (tempfile::TempDir, Store) {
@@ -1020,11 +905,11 @@ mod tests {
         let now = now_rfc3339().expect("timestamp");
         Issue::new(NewIssue {
             id: Uuid::now_v7(),
-            reference: reference.to_string(),
+            reference: IssueRef::parse(reference).expect("valid ref"),
             title: format!("Issue {reference}"),
             body: String::new(),
             status: IssueStatus::Open,
-            kind: "task".to_string(),
+            kind: IssueKind::parse("task").expect("valid kind"),
             priority: 3,
             labels: Vec::new(),
             assignee: None,
