@@ -1,9 +1,19 @@
 id = "019f04a8-e5ed-7060-a28e-880633c2bb86"
 ref = "gitrack-gom"
 title = "Check licenses on CI"
-body = "We should also run the license deny check on CI, so it doesn't get missed on PRs later"
-status = "open"
+body = """
+Run the existing cargo-deny licence policy in CI so licence checks cannot be missed on pull requests.
+
+G1. Keep the change on main; no task branch for this small workflow update.
+G2. Add a dedicated linux-licenses job to .github/workflows/pr-linux.yml.
+G3. Use EmbarkStudios/cargo-deny-action@v2 with stable Rust and command `check licenses`.
+G4. Keep the job in the existing pr-linux workflow so it runs on pull_request, push to main, and workflow_dispatch.
+G5. Validate with cargo-deny check licenses and git diff --check.
+G6. Commit and push directly to main after validation."""
+status = "in-progress"
+status_reason = "in review"
 type = "task"
 priority = 3
+assignee = "codex"
 created_at = "2026-06-26T16:00:05.613505Z"
-updated_at = "2026-06-26T16:00:05.613505Z"
+updated_at = "2026-06-26T17:31:29.223825Z"

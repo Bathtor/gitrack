@@ -56,3 +56,17 @@ jobs:
 
             - name: Run workspace tests
               run: cargo test --workspace --locked
+
+    linux-licenses:
+        name: linux-licenses
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v6
+
+            - name: Check dependency licences
+              uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  rust-version: stable
+                  command: check licenses
