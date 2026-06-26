@@ -2,6 +2,10 @@
 name = "gitrack"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A small Git-native issue tracker CLI that stores issues as tracked files"
+repository = "https://github.com/Bathtor/gitrack"
+readme = "README.md"
 license = "GPL-2.0-or-later"
 
 [features]

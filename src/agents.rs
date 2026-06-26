@@ -76,7 +76,7 @@ const MANAGED_END_MARKER: &str = "<!-- END GITRACK MANAGED INSTRUCTIONS -->";
 
 const MANAGED_SECTION_BODY: &str = r"## Issue Tracking with gitrack
 
-This project uses `gitrack` for Git-native issue tracking. Issue state lives in ordinary tracked files in this repository.
+This project uses [`gitrack`](https://github.com/Bathtor/gitrack) for Git-native issue tracking. Issue state lives in ordinary tracked files in this repository.
 
 ### Tool Rules
 

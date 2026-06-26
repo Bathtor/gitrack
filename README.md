@@ -102,6 +102,9 @@ do not rewrite other issue files. If a merge produces a ref clash, use the UUID
 form to rename one side, for example `gitrack ref <uuid> <new-ref>`, then stage
 the resolved issue files with Git.
 
+Windows has not been tested yet. The storage layout relies on symlink support,
+which may require additional Windows configuration or privileges.
+
 Issue files are readable TOML and include fields for UUID, ref, title, body,
 status, status reason, type, priority, labels, assignee, relationships,
 timestamps, and comments.
