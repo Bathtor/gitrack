@@ -450,6 +450,175 @@ fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
 }
 
 #[test]
+fn ref_renames_preserve_uuid_relationships_and_resolve_latest_refs() {
+    let (_temp, workdir) = initialised_workdir();
+    let fixture = create_relationship_rename_fixture(&workdir);
+
+    run_json(
+        &workdir,
+        &["--json", "ref", "project-parent", "project-parent-renamed"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "ref", "project-prereq", "project-prereq-renamed"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "ref", "project-target", "project-target-renamed"],
+    );
+
+    assert_eq!(
+        issue_file_content(&workdir, &fixture.child_id),
+        fixture.child_before_ref_renames
+    );
+    assert_eq!(
+        issue_file_content(&workdir, &fixture.blocked_id),
+        fixture.blocked_before_ref_renames
+    );
+    assert_eq!(
+        issue_file_content(&workdir, &fixture.source_id),
+        fixture.source_before_ref_renames
+    );
+    let parent_before_child_rename = issue_file_content(&workdir, &fixture.parent_id);
+    let prerequisite_before_blocked_rename = issue_file_content(&workdir, &fixture.prerequisite_id);
+
+    run_json(
+        &workdir,
+        &["--json", "ref", "project-child", "project-child-renamed"],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "ref",
+            "project-blocked",
+            "project-blocked-renamed",
+        ],
+    );
+
+    assert_eq!(
+        issue_file_content(&workdir, &fixture.parent_id),
+        parent_before_child_rename
+    );
+    assert_eq!(
+        issue_file_content(&workdir, &fixture.prerequisite_id),
+        prerequisite_before_blocked_rename
+    );
+    assert_eq!(
+        uuid_array_field(&issue_document(&workdir, &fixture.parent_id), "children"),
+        vec![fixture.child_id.clone()]
+    );
+    assert_eq!(
+        optional_uuid_field(&issue_document(&workdir, &fixture.child_id), "parent"),
+        Some(fixture.parent_id)
+    );
+    assert_eq!(
+        uuid_array_field(
+            &issue_document(&workdir, &fixture.prerequisite_id),
+            "blocks"
+        ),
+        vec![fixture.blocked_id]
+    );
+    assert_eq!(
+        link_entries(&issue_document(&workdir, &fixture.source_id)),
+        vec![(fixture.target_id, "discovered from".to_string())]
+    );
+
+    let child_view = run_json(&workdir, &["--json", "show", "project-child-renamed"]);
+    assert_eq!(child_view["parent"]["ref"], "project-parent-renamed");
+    let parent_view = run_json(&workdir, &["--json", "show", "project-parent-renamed"]);
+    assert_eq!(parent_view["children"][0]["ref"], "project-child-renamed");
+    let blocked_view = run_json(&workdir, &["--json", "show", "project-blocked-renamed"]);
+    assert_eq!(
+        blocked_view["blocked_by"][0]["ref"],
+        "project-prereq-renamed"
+    );
+    let prerequisite_view = run_json(&workdir, &["--json", "show", "project-prereq-renamed"]);
+    assert_eq!(
+        prerequisite_view["blocks"][0]["ref"],
+        "project-blocked-renamed"
+    );
+    let source_view = run_json(&workdir, &["--json", "show", "project-source"]);
+    assert_eq!(
+        source_view["links"][0]["target"]["ref"],
+        "project-target-renamed"
+    );
+
+    assert_renamed_relationship_human_output(&workdir);
+}
+
+#[test]
+fn missing_parent_child_mirror_reports_repair_context() {
+    let (_temp, workdir) = initialised_workdir();
+    create_issue_with_priority(&workdir, "Parent", "project-parent", 3);
+    let child = create_issue_with_priority(&workdir, "Child", "project-child", 3);
+    let child_id = issue_id(&child);
+    link_child(&workdir, "project-parent", "project-child");
+    remove_issue_field(&workdir, &child_id, "parent");
+
+    let failed_list = run_failure(&workdir, &["list"]);
+    let stderr = String::from_utf8_lossy(&failed_list.stderr);
+
+    assert!(stderr.contains("issue `project-parent` relationship field `children`"));
+    assert!(stderr.contains(&child_id));
+    assert!(stderr.contains("target field `parent` does not mirror it"));
+}
+
+#[test]
+fn relationship_field_merge_state_reports_mirror_context() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+
+    run_git_success(&workdir, &["init"]);
+    run_git_success(&workdir, &["config", "user.name", "gitrack test"]);
+    run_git_success(
+        &workdir,
+        &["config", "user.email", "gitrack@example.invalid"],
+    );
+    run_git_success(&workdir, &["config", "commit.gpgsign", "false"]);
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--no-agents"]);
+    let parent_a = create_issue_with_priority(&workdir, "Parent A", "project-parent-a", 3);
+    create_issue_with_priority(&workdir, "Parent B", "project-parent-b", 3);
+    let child = create_issue_with_priority(&workdir, "Child", "project-child", 3);
+    let source_parent_id = issue_id(&parent_a);
+    let child_id = issue_id(&child);
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(
+        &workdir,
+        &["commit", "-m", "initialise relationship fixture"],
+    );
+    let base_branch = git_stdout(&workdir, &["branch", "--show-current"]);
+
+    run_git_success(&workdir, &["checkout", "-b", "left"]);
+    set_uuid_array_field(
+        &workdir,
+        &source_parent_id,
+        "children",
+        &[child_id.as_str()],
+    );
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(&workdir, &["commit", "-m", "add parent side"]);
+
+    run_git_success(&workdir, &["checkout", &base_branch]);
+    run_git_success(&workdir, &["checkout", "-b", "right"]);
+    let parent_b = run_json(&workdir, &["--json", "show", "project-parent-b"]);
+    let divergent_parent_id = issue_id(&parent_b);
+    set_uuid_string_field(&workdir, &child_id, "parent", &divergent_parent_id);
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(&workdir, &["commit", "-m", "add child side"]);
+
+    run_git_success(&workdir, &["checkout", "left"]);
+    run_git_success(&workdir, &["merge", "right"]);
+
+    let failed_list = run_failure(&workdir, &["list"]);
+    let stderr = String::from_utf8_lossy(&failed_list.stderr);
+    assert!(stderr.contains("issue `project-parent-a` relationship field `children`"));
+    assert!(stderr.contains(&child_id));
+    assert!(stderr.contains("target field `parent` does not mirror it"));
+}
+
+#[test]
 fn ref_command_repairs_real_merge_ref_clash_by_uuid() {
     let fixture = setup_real_merge_ref_clash();
     let workdir = &fixture.workdir;
@@ -868,6 +1037,77 @@ fn claim_issue(workdir: &Path, reference: &str) -> Value {
     )
 }
 
+fn create_relationship_rename_fixture(workdir: &Path) -> RelationshipRenameFixture {
+    let parent = create_issue_with_priority(workdir, "Parent", "project-parent", 3);
+    let child = create_issue_with_priority(workdir, "Child", "project-child", 2);
+    let prerequisite = create_issue_with_priority(workdir, "Prereq", "project-prereq", 3);
+    let blocked = create_issue_with_priority(workdir, "Blocked", "project-blocked", 3);
+    let source = create_issue_with_priority(workdir, "Source", "project-source", 3);
+    let target = create_issue_with_priority(workdir, "Target", "project-target", 3);
+    let parent_id = issue_id(&parent);
+    let child_id = issue_id(&child);
+    let prerequisite_id = issue_id(&prerequisite);
+    let blocked_id = issue_id(&blocked);
+    let source_id = issue_id(&source);
+    let target_id = issue_id(&target);
+
+    link_child(workdir, "project-parent", "project-child");
+    run_json(
+        workdir,
+        &[
+            "--json",
+            "link",
+            "project-blocked",
+            "project-prereq",
+            "--blocked-by",
+        ],
+    );
+    run_json(
+        workdir,
+        &[
+            "--json",
+            "link",
+            "project-source",
+            "project-target",
+            "--label",
+            "discovered from",
+        ],
+    );
+
+    RelationshipRenameFixture {
+        child_before_ref_renames: issue_file_content(workdir, &child_id),
+        blocked_before_ref_renames: issue_file_content(workdir, &blocked_id),
+        source_before_ref_renames: issue_file_content(workdir, &source_id),
+        parent_id,
+        child_id,
+        prerequisite_id,
+        blocked_id,
+        source_id,
+        target_id,
+    }
+}
+
+fn assert_renamed_relationship_human_output(workdir: &Path) {
+    let show_child = run_success(workdir, &["show", "project-child-renamed"]);
+    let show_child_stdout = String::from_utf8_lossy(&show_child.stdout);
+    assert!(show_child_stdout.contains("Parent: project-parent-renamed"));
+
+    let show_parent = run_success(workdir, &["show", "project-parent-renamed"]);
+    let show_parent_stdout = String::from_utf8_lossy(&show_parent.stdout);
+    assert!(show_parent_stdout.contains("\nCHILDREN\n"));
+    assert!(show_parent_stdout.contains("project-child-renamed: Child"));
+
+    let show_prerequisite = run_success(workdir, &["show", "project-prereq-renamed"]);
+    let show_prerequisite_stdout = String::from_utf8_lossy(&show_prerequisite.stdout);
+    assert!(show_prerequisite_stdout.contains("\nBLOCKS\n"));
+    assert!(show_prerequisite_stdout.contains("project-blocked-renamed: Blocked"));
+
+    let list = run_success(workdir, &["list"]);
+    let list_stdout = String::from_utf8_lossy(&list.stdout);
+    assert!(list_stdout.contains("□ project-parent-renamed"));
+    assert!(list_stdout.contains("  ↳ □ project-child-renamed"));
+}
+
 fn initialised_workdir() -> (tempfile::TempDir, PathBuf) {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -1086,6 +1326,46 @@ fn issue_document(workdir: &Path, issue_id: &str) -> toml::Value {
     content.parse::<toml::Value>().expect("parse issue TOML")
 }
 
+fn issue_file_content(workdir: &Path, issue_id: &str) -> String {
+    fs::read_to_string(issue_file_path(workdir, issue_id)).expect("read issue file")
+}
+
+fn set_uuid_array_field(workdir: &Path, issue_id: &str, field: &str, values: &[&str]) {
+    update_issue_document(workdir, issue_id, |document| {
+        let values = values
+            .iter()
+            .map(|value| toml::Value::String((*value).to_string()))
+            .collect::<Vec<_>>();
+        document.insert(field.to_string(), toml::Value::Array(values));
+    });
+}
+
+fn set_uuid_string_field(workdir: &Path, issue_id: &str, field: &str, value: &str) {
+    update_issue_document(workdir, issue_id, |document| {
+        document.insert(field.to_string(), toml::Value::String(value.to_string()));
+    });
+}
+
+fn remove_issue_field(workdir: &Path, issue_id: &str, field: &str) {
+    update_issue_document(workdir, issue_id, |document| {
+        document.remove(field);
+    });
+}
+
+fn update_issue_document(
+    workdir: &Path,
+    issue_id: &str,
+    update: impl FnOnce(&mut toml::map::Map<String, toml::Value>),
+) {
+    let issue_path = issue_file_path(workdir, issue_id);
+    let content = fs::read_to_string(&issue_path).expect("read issue file");
+    let mut issue_document = content.parse::<toml::Value>().expect("parse issue TOML");
+    let document = issue_document.as_table_mut().expect("issue document table");
+    update(document);
+    let serialised = toml::to_string_pretty(&issue_document).expect("serialise issue TOML");
+    fs::write(issue_path, serialised).expect("write issue file");
+}
+
 fn uuid_array_field(document: &toml::Value, field: &str) -> Vec<String> {
     document
         .get(field)
@@ -1143,6 +1423,19 @@ fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
 fn assert_refs(value: &Value, expected_refs: &[&str]) {
     let refs = issue_refs(value);
     assert_eq!(refs, expected_refs);
+}
+
+/// Relationship fixture plus pre-rename issue-file snapshots.
+struct RelationshipRenameFixture {
+    child_before_ref_renames: String,
+    blocked_before_ref_renames: String,
+    source_before_ref_renames: String,
+    parent_id: String,
+    child_id: String,
+    prerequisite_id: String,
+    blocked_id: String,
+    source_id: String,
+    target_id: String,
 }
 
 /// Real merge-clash fixture that keeps its temporary repository alive.

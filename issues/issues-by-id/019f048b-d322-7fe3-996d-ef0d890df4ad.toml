@@ -13,18 +13,49 @@ Scope:
 - Test merge/conflict-like states around relationship fields where practical.
 - Ensure diagnostics tell users which issue and relationship field needs repair.
 
-Depends on: gitrack-fl8.1 schema and gitrack-fl8.2 CLI."""
-status = "open"
+Depends on: gitrack-fl8.1 schema and gitrack-fl8.2 CLI.
+
+Proposed plan:
+P1. Add CLI coverage that creates parent/child, blocked_by/blocks, and labelled-link relationships, renames one or more refs with gitrack ref, and asserts the underlying relationship fields still store the same UUIDs without rewriting dependent issue files.
+P2. Extend output coverage so JSON and human show/list views resolve relationship UUIDs to the latest refs after a rename, including nested list output introduced by gitrack-fl8.6.
+P3. Add store-level negative tests for mirrored relationship inconsistencies that check the structured error variant and verify the diagnostic includes the source issue, relationship field, target UUID, and expected target field.
+P4. Add a practical merge-like fixture for relationship fields if it can be done without excessive git-test complexity: create divergent edits to mirrored relationship fields and verify gitrack load/list fails loudly until repaired.
+P5. If P4 becomes too large, split the full real-merge harness into a follow-up and keep this slice to deterministic file-level conflict/corruption tests.
+P6. Avoid changing relationship semantics unless tests expose an actual bug; this is primarily a hardening and diagnostics slice.
+P7. Run cargo fmt --all --check, cargo test -- --test-threads=1, clippy pedantic, cargo-deny check licenses, and git diff --check.
+
+Estimated size:
+E1. Ref-rename relationship tests: 120-220 LOC.
+E2. Output resolution tests: 80-160 LOC.
+E3. Store diagnostics tests and any message tightening: 120-220 LOC.
+E4. Merge-like fixture, if included: 120-260 LOC.
+E5. Total expected change: 320-860 LOC if P4 stays focused; split P4 if it pushes the slice near 1000 LOC."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 2
 labels = [
     "relationships",
     "tests",
 ]
+assignee = "codex"
 blocked_by = [
     "019f048b-470d-7402-932f-7aff312e04d6",
     "019f048b-6ab3-7ee2-98a1-e16bbad8658f",
 ]
 parent = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
 created_at = "2026-06-26T15:28:20.258808Z"
-updated_at = "2026-06-26T16:27:27.676214Z"
+updated_at = "2026-06-26T17:10:39.360903Z"
+closed_at = "2026-06-26T17:10:39.360903Z"
+
+[[comments]]
+id = "019f04de-742a-77a2-b13e-d676bfff8cb0"
+author = "codex"
+body = "Implemented relationship hardening coverage. Added CLI coverage for ref renames across hierarchy, blockers, and labelled links; asserted UUID relationship fields stay unchanged while JSON and human output resolve latest refs; added a file-level mirror-corruption CLI test for user-facing diagnostics; strengthened store tests to assert exact mirror-mismatch context. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; cargo-deny check licenses."
+created_at = "2026-06-26T16:58:35.434716Z"
+
+[[comments]]
+id = "019f04e9-8000-73e1-ab04-2dd6776a730b"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T17:10:39.360903Z"

@@ -1158,7 +1158,33 @@ mod tests {
 
         let error = store.load_issues().expect_err("missing mirror");
 
-        assert!(matches!(error, Error::RelationshipMirrorMismatch { .. }));
+        assert_relationship_mirror_error(
+            error,
+            "project-blocked",
+            "blocked_by",
+            prerequisite.id,
+            "blocks",
+        );
+    }
+
+    #[test]
+    fn missing_blocks_mirrors_are_rejected_with_repair_context() {
+        let (_temp, store) = test_store();
+        let mut prerequisite = test_issue("project-blocker");
+        let work_item = test_issue("project-blocked");
+        prerequisite.blocks.push(work_item.id);
+        store.save_issue(&prerequisite).expect("save blocker");
+        store.save_issue(&work_item).expect("save blocked");
+
+        let error = store.load_issues().expect_err("missing blocks mirror");
+
+        assert_relationship_mirror_error(
+            error,
+            "project-blocker",
+            "blocks",
+            work_item.id,
+            "blocked_by",
+        );
     }
 
     #[test]
@@ -1174,6 +1200,46 @@ mod tests {
         let issues = store.load_issues().expect("load mirrored hierarchy");
 
         assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn missing_hierarchy_mirrors_are_rejected_with_repair_context() {
+        let (_temp, store) = test_store();
+        let mut parent_issue = test_issue("project-parent");
+        let child_issue = test_issue("project-child");
+        parent_issue.children.push(child_issue.id);
+        store.save_issue(&parent_issue).expect("save parent");
+        store.save_issue(&child_issue).expect("save child");
+
+        let error = store.load_issues().expect_err("missing hierarchy mirror");
+
+        assert_relationship_mirror_error(
+            error,
+            "project-parent",
+            "children",
+            child_issue.id,
+            "parent",
+        );
+    }
+
+    #[test]
+    fn missing_parent_mirrors_are_rejected_with_repair_context() {
+        let (_temp, store) = test_store();
+        let parent_issue = test_issue("project-parent");
+        let mut child_issue = test_issue("project-child");
+        child_issue.parent = Some(parent_issue.id);
+        store.save_issue(&parent_issue).expect("save parent");
+        store.save_issue(&child_issue).expect("save child");
+
+        let error = store.load_issues().expect_err("missing parent mirror");
+
+        assert_relationship_mirror_error(
+            error,
+            "project-child",
+            "parent",
+            parent_issue.id,
+            "children",
+        );
     }
 
     #[test]
@@ -1281,5 +1347,27 @@ mod tests {
         assert!(metadata.file_type().is_symlink());
         let target = fs::read_link(alias_path).expect("read alias target");
         assert_eq!(target, ref_alias_target(issue.id));
+    }
+
+    fn assert_relationship_mirror_error(
+        error: Error,
+        expected_issue: &str,
+        expected_field: &'static str,
+        expected_target: Uuid,
+        expected_target_field: &'static str,
+    ) {
+        let Error::RelationshipMirrorMismatch {
+            issue,
+            field,
+            target,
+            target_field,
+        } = error
+        else {
+            panic!("expected relationship mirror mismatch");
+        };
+        assert_eq!(issue, expected_issue);
+        assert_eq!(field, expected_field);
+        assert_eq!(target, expected_target);
+        assert_eq!(target_field, expected_target_field);
     }
 }
