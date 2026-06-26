@@ -139,6 +139,72 @@ fn help_text_describes_common_agent_workflows() {
     assert!(claim_stdout.contains("Reopen it first"));
 }
 
+#[test]
+fn init_creates_agents_file_by_default_and_supports_opt_out() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let default_workdir = temp.path().join("default-project");
+    fs::create_dir(&default_workdir).expect("create default project dir");
+    fs::create_dir(default_workdir.join(".git")).expect("create fake git dir");
+
+    let init = run_json(&default_workdir, &["init", "--json"]);
+    let agents_path = default_workdir.join("AGENTS.md");
+    let agents_content = fs::read_to_string(&agents_path).expect("read agents file");
+    assert_eq!(init["agents"]["file"], "AGENTS.md");
+    assert_eq!(init["agents"]["managed_section"], "created");
+    assert_eq!(init["agents"]["workflow_section"], "skipped");
+    assert!(agents_content.contains("BEGIN GITRACK MANAGED INSTRUCTIONS"));
+    assert!(agents_content.contains("Use `gitrack` for project issue tracking."));
+
+    let opt_out_workdir = temp.path().join("opt-out-project");
+    fs::create_dir(&opt_out_workdir).expect("create opt-out project dir");
+    fs::create_dir(opt_out_workdir.join(".git")).expect("create fake git dir");
+
+    let init = run_json(&opt_out_workdir, &["init", "--json", "--no-agents"]);
+    assert!(init["agents"].is_null());
+    assert!(!opt_out_workdir.join("AGENTS.md").exists());
+}
+
+#[test]
+fn agents_update_replaces_managed_block_and_appends_workflow() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+    fs::write(
+        workdir.join("AGENTS.md"),
+        "# Agent Instructions\n\n<!-- BEGIN GITRACK MANAGED INSTRUCTIONS -->\nold\n<!-- END GITRACK MANAGED INSTRUCTIONS -->\n",
+    )
+    .expect("write agents file");
+
+    let update = run_json(&workdir, &["--json", "agents", "update", "--with-workflow"]);
+    let agents_content = fs::read_to_string(workdir.join("AGENTS.md")).expect("read agents file");
+
+    assert_eq!(update["file"], "AGENTS.md");
+    assert_eq!(update["managed_section"], "updated");
+    assert_eq!(update["workflow_section"], "created");
+    assert_eq!(update["changed"], true);
+    assert!(agents_content.contains("Git-native issue tracking"));
+    assert!(agents_content.contains("## Suggested gitrack Workflow"));
+    assert!(!agents_content.contains("\nold\n"));
+}
+
+#[test]
+fn agents_update_rejects_malformed_managed_markers() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+    let original = "# Agent Instructions\n\n<!-- BEGIN GITRACK MANAGED INSTRUCTIONS -->\n";
+    fs::write(workdir.join("AGENTS.md"), original).expect("write malformed agents file");
+
+    let failed_update = run_failure(&workdir, &["agents", "update"]);
+    let stderr = String::from_utf8_lossy(&failed_update.stderr);
+    let agents_content = fs::read_to_string(workdir.join("AGENTS.md")).expect("read agents file");
+
+    assert!(stderr.contains("matching begin and end markers"));
+    assert_eq!(agents_content, original);
+}
+
 fn run_json(workdir: &Path, args: &[&str]) -> Value {
     let output = run_success(workdir, args);
     serde_json::from_slice(&output.stdout).expect("parse JSON output")

@@ -1,0 +1,40 @@
+id = "019f034b-1cdd-77c2-b9c9-526175845692"
+ref = "gitrack-wku"
+title = "Generate gitrack AGENTS.md instructions"
+body = """
+Problem
+Add first-class AGENTS.md instruction generation so projects get clear gitrack usage guidance without hardcoding a specific project workflow into issue semantics.
+
+Agreed plan
+1. Add `gitrack agents update` to create or update a managed AGENTS.md block delimited by `<!-- BEGIN GITRACK MANAGED INSTRUCTIONS -->` and `<!-- END GITRACK MANAGED INSTRUCTIONS -->`.
+2. Make `gitrack init` update AGENTS.md by default and add `--no-agents` as an opt-out.
+3. Add `--with-workflow` to append an ordinary suggested workflow section without markers or replacement logic. Re-running it appends another template and leaves reconciliation to the user.
+4. Keep `--json` output minimal and deterministic: file path, managed section action, workflow section action, and changed boolean.
+5. Fail without editing on malformed managed markers, duplicate managed markers, or AGENTS.md being a directory.
+6. Include generic tool rules plus git workflow notes in the managed section.
+7. Include the Lars-style priority definitions and plan-alignment workflow in the optional suggested workflow.
+8. Add focused tests for create, update, unchanged, malformed marker, init default behaviour, init opt-out, and workflow append.
+
+Estimated implementation size
+- CLI changes: 50-90 LOC.
+- AGENTS.md marker/template helper: 150-220 LOC.
+- Tests: 120-200 LOC.
+- Total expected change: 320-510 LOC, below the 1000 LOC split threshold."""
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 2
+labels = [
+    "agents",
+    "docs",
+]
+assignee = "codex"
+created_at = "2026-06-26T09:38:02.077435Z"
+updated_at = "2026-06-26T10:21:04.171621Z"
+closed_at = "2026-06-26T10:21:04.171621Z"
+
+[[comments]]
+id = "019f0372-832b-7902-8438-a5dcbeea4f70"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T10:21:04.171621Z"

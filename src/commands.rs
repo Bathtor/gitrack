@@ -7,6 +7,7 @@ use snafu::ensure;
 use uuid::Uuid;
 
 use crate::{
+    agents::update_agents_file,
     error::{InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
     model::{Comment, Issue, IssueStatus, NewIssue, now_rfc3339},
     readiness::{issue_is_ready, issue_map},
@@ -85,6 +86,8 @@ pub(crate) enum Command {
     #[command(alias = "note")]
     #[command(about = "Append a comment to an issue")]
     Comment(CommentArgs),
+    #[command(about = "Manage AGENTS.md gitrack instructions")]
+    Agents(AgentsArgs),
     #[command(about = "Export issue data")]
     Export(ExportArgs),
 }
@@ -103,6 +106,9 @@ pub(crate) struct InitArgs {
         help = "Issue directory relative to the Git root"
     )]
     issue_dir: String,
+
+    #[arg(long, help = "Skip creating or updating AGENTS.md instructions")]
+    no_agents: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -270,6 +276,30 @@ pub(crate) struct CommentArgs {
 }
 
 #[derive(Debug, clap::Args)]
+pub(crate) struct AgentsArgs {
+    #[command(subcommand)]
+    command: AgentsCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AgentsCommand {
+    #[command(
+        about = "Create or update gitrack instructions in AGENTS.md",
+        after_help = "The managed gitrack block is updated in place. --with-workflow appends an editable suggested workflow section."
+    )]
+    Update(AgentsUpdateArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct AgentsUpdateArgs {
+    #[arg(
+        long,
+        help = "Append an editable suggested workflow section after updating the managed block"
+    )]
+    with_workflow: bool,
+}
+
+#[derive(Debug, clap::Args)]
 pub(crate) struct ExportArgs {
     #[command(subcommand)]
     format: ExportFormat,
@@ -309,14 +339,21 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Close(args) => close(args, cli.json),
         Command::Reopen(args) => reopen(&args, cli.json),
         Command::Comment(args) => comment(args, cli.json),
+        Command::Agents(args) => agents(args, cli.json),
         Command::Export(args) => export(args),
     }
 }
 
 fn init(args: InitArgs, json: bool) -> Result<()> {
     let store = Store::init(Path::new("."), args.prefix, args.issue_dir)?;
+    let agents = if args.no_agents {
+        None
+    } else {
+        Some(update_agents_file(&store.root, false)?)
+    };
+
     if json {
-        print_json(&InitView::from_store(&store), true)?;
+        print_json(&InitView::from_store(&store, agents), true)?;
     } else {
         println!(
             "Initialised issue store at {} with config {} and ref prefix `{}`",
@@ -324,6 +361,9 @@ fn init(args: InitArgs, json: bool) -> Result<()> {
             store.config_path.display(),
             store.config.ref_prefix
         );
+        if let Some(agents) = agents {
+            agents.print_human();
+        }
     }
     Ok(())
 }
@@ -589,6 +629,23 @@ fn comment(args: CommentArgs, json: bool) -> Result<()> {
     let updated = issue.clone();
     store.save_issue(&updated)?;
     emit_issue(&store.config, &issues, &updated, json)
+}
+
+fn agents(args: AgentsArgs, json: bool) -> Result<()> {
+    match args.command {
+        AgentsCommand::Update(args) => agents_update(&args, json),
+    }
+}
+
+fn agents_update(args: &AgentsUpdateArgs, json: bool) -> Result<()> {
+    let root = Store::root_for_worktree(Path::new("."))?;
+    let result = update_agents_file(&root, args.with_workflow)?;
+    if json {
+        print_json(&result, true)
+    } else {
+        result.print_human();
+        Ok(())
+    }
 }
 
 fn export(args: ExportArgs) -> Result<()> {

@@ -1,5 +1,6 @@
 //! Library entry point for the Git-native issue tracker CLI.
 
+mod agents;
 mod commands;
 pub mod error;
 mod model;

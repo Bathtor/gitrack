@@ -102,6 +102,9 @@ pub enum Error {
     #[snafu(display("failed to write to stdout: {source}"))]
     WriteStdout { source: std::io::Error },
 
+    #[snafu(display("invalid AGENTS.md at {}: {reason}", path.display()))]
+    InvalidAgentsFile { path: PathBuf, reason: String },
+
     #[snafu(display("failed to format timestamp: {source}"))]
     FormatTime { source: time::error::Format },
 

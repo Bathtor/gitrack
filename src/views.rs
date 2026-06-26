@@ -7,6 +7,7 @@ use snafu::ResultExt;
 use uuid::Uuid;
 
 use crate::{
+    agents::AgentsUpdateResult,
     error::{Result, SerialiseJsonSnafu, WriteStdoutSnafu},
     model::{Comment, Config, Issue, IssueStatus},
     readiness::{issue_is_ready, issue_map},
@@ -109,16 +110,18 @@ pub(crate) struct InitView {
     issues_dir: String,
     config_path: String,
     config: Config,
+    agents: Option<AgentsUpdateResult>,
 }
 
 impl InitView {
-    pub(crate) fn from_store(store: &Store) -> Self {
+    pub(crate) fn from_store(store: &Store, agents: Option<AgentsUpdateResult>) -> Self {
         Self {
             root: store.root.display().to_string(),
             config_dir: store.dir.display().to_string(),
             issues_dir: store.issues_dir.display().to_string(),
             config_path: store.config_path.display().to_string(),
             config: store.config.clone(),
+            agents,
         }
     }
 }

@@ -48,3 +48,55 @@
 - Keep Snafu variant names generic inside one error enum. Do not bake call-site names like `PublishStoreAccess` into the variant when the enum type or selector module already provides that context.
 - Reserve manual `map_err(...)` for real error translation cases that `context(...)` cannot express cleanly.
 - Do not manually construct Snafu boxed-source variants with `Box::new(source)`; use `result.boxed().context(SelectorSnafu)` or `context(...)`/`with_context(...)` instead.
+
+<!-- BEGIN GITRACK MANAGED INSTRUCTIONS -->
+
+## Issue Tracking with gitrack
+
+This project uses `gitrack` for Git-native issue tracking. Issue state lives in ordinary tracked files in this repository.
+
+### Tool Rules
+
+- Use `gitrack` for project issue tracking.
+- Prefer `--json` for agent-driven workflows.
+- Use `gitrack ready --json` to find unblocked open work.
+- Use `gitrack show <ref> --json` before changing an issue.
+- Use `gitrack claim <ref> --assignee <name> --json` before starting assigned work.
+- Use `gitrack update <ref> --body <text> --json` to keep the current issue description and plan up to date.
+- Use comments for chronological notes, review observations, and progress history.
+- Close issues with `gitrack close <ref> --reason <reason> --json`.
+- Do not create parallel TODO lists when the item should be tracked as an issue.
+
+### Git Workflow Notes
+
+- When creating a branch for a new task, create the branch first, then claim the issue so the claim is committed on that branch.
+- Before committing completed work, update the issue state first so the issue change is included in the same commit.
+
+<!-- END GITRACK MANAGED INSTRUCTIONS -->
+
+## Suggested gitrack Workflow
+
+### Priorities
+
+- `0` - Immediate: drop everything and do this now.
+- `1` - ASAP: finish the current task, then pick this up next before lower-priority work.
+- `2` - High: important work.
+- `3` - Normal: default priority for ordinary work.
+- `4` - Low/Backlog: nice-to-have, polish, cleanup, or future ideas.
+
+### Agent Workflow
+
+1. Check ready work with `gitrack ready --json`.
+2. If a new branch is needed, create it before claiming the issue.
+3. Claim the selected issue with `gitrack claim <ref> --assignee <name> --json`.
+4. Read the issue with `gitrack show <ref> --json`.
+5. Set `status_reason = "planning"` while preparing the implementation plan.
+6. Align on a concrete plan with the user before implementation.
+7. Store the agreed plan in the issue body.
+8. Once the user agrees, set `status_reason = "plan agreed"`.
+9. Implement against the agreed plan.
+10. Before handing work over for review, compare the result against the issue body and agreed plan.
+11. Set `status_reason = "in review"` when ready for user review.
+12. Only close the issue after the user agrees it is complete.
+13. When closing, use `status_reason = "completed"`, `"won't do"`, `"duplicate"`, or another concise explanation.
+14. Commit the issue state changes together with the code changes they describe.

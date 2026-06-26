@@ -42,6 +42,11 @@ pub(crate) struct Store {
 }
 
 impl Store {
+    /// Resolve the Git working tree root without requiring a gitrack store.
+    pub(crate) fn root_for_worktree(start: &Path) -> Result<PathBuf> {
+        find_git_root(start)
+    }
+
     pub(crate) fn init(
         start: &Path,
         explicit_prefix: Option<String>,
