@@ -1,0 +1,38 @@
+name: pr-dco
+
+on:
+    pull_request:
+        types:
+            - opened
+            - edited
+            - reopened
+            - synchronize
+            - ready_for_review
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    pr-dco:
+        name: pr-dco
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check PR description DCO sign-off
+              env:
+                  PR_BODY: ${{ github.event.pull_request.body }}
+              run: |
+                  node <<'JS'
+                  const body = process.env.PR_BODY || "";
+                  const trailerPattern = /^Signed-off-by:\s+[^<>\n]+ <[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>\s*$/im;
+
+                  if (trailerPattern.test(body)) {
+                    console.log("Found DCO sign-off in the PR description.");
+                    process.exit(0);
+                  }
+
+                  console.error("Missing DCO sign-off in the PR description.");
+                  console.error("Add a line like: Signed-off-by: Your Name <you@example.com>");
+                  process.exit(1);
+                  JS
