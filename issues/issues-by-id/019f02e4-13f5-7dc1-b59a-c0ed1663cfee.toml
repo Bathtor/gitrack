@@ -1,10 +1,52 @@
 id = "019f02e4-13f5-7dc1-b59a-c0ed1663cfee"
 ref = "gitrack-xny"
 title = "Add README and user guide"
-body = "Document installation, storage layout, common command examples, JSON mode, ready semantics, ref aliases, and agent-friendly workflows in a README or equivalent user guide."
-status = "open"
+body = """
+Document installation, storage layout, common command examples, JSON mode, ready semantics, ref aliases, and agent-friendly workflows in a README or equivalent user guide.
+
+Agreed plan:
+A1. Add README.md covering overview, quick start through install.sh, gitrack init, common command examples, storage layout, JSON mode, ready semantics, refs, symlink aliases, and generated AGENTS guidance commands.
+A2. Avoid duplicating the detailed agent workflow in README.md; refer readers to gitrack agents update and gitrack agents update --with-workflow.
+A3. License the project as GPL-2.0-or-later, including Cargo metadata and a top-level licence file.
+A4. Add CONTRIBUTING.md with inbound-equals-outbound terms and DCO sign-off expectations.
+A5. Add deny.toml using the agreed cargo-deny license allow-list and confidence threshold.
+A6. Install/run cargo-deny and validate docs/config changes before moving the issue to review."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 3
 labels = ["docs"]
+assignee = "codex"
 created_at = "2026-06-26T07:45:29.589426Z"
-updated_at = "2026-06-26T07:45:29.589426Z"
+updated_at = "2026-06-26T12:41:01.000023Z"
+closed_at = "2026-06-26T12:41:01.000023Z"
+
+[[comments]]
+id = "019f03aa-496e-7e80-a1f7-c379cff0a02e"
+author = "codex"
+body = "Implemented README/user guide, GPL-2.0-or-later licensing metadata and LICENSE text, CONTRIBUTING.md with inbound-equals-outbound and DCO sign-off guidance, and deny.toml with the agreed license allow-list. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; cargo-deny check licenses; git diff --check."
+created_at = "2026-06-26T11:21:59.406455Z"
+
+[[comments]]
+id = "019f03bc-0246-7fc2-b1b1-4a1f3b6ba2fb"
+author = "codex"
+body = "Addressed review feedback: created DCO CI follow-up gitrack-ytr, promoted merge-time ref-clash testing task gitrack-s1d to P0, revised README ref-clash wording to prefer gitrack ref, and replaced the flat command dump with workflow-based command groups. Validation passed: cargo deny check licenses; git diff --check."
+created_at = "2026-06-26T11:41:20.838615Z"
+
+[[comments]]
+id = "019f03cf-424c-7dc2-84b7-fb0d6bb63897"
+author = "codex"
+body = "Addressed README workflow clarity feedback: rewrote the common workflow section so each workflow has TL;DR commands, prose explaining the default path, and separate variant examples where useful. Validation passed: git diff --check; cargo deny check licenses."
+created_at = "2026-06-26T12:02:22.412427Z"
+
+[[comments]]
+id = "019f03e9-6223-7172-b141-210d1e9a87cc"
+author = "codex"
+body = "Addressed README follow-up feedback: added missing inline comments to bash examples, folded Ready Work into Find Work, and folded fixed status/status_reason guidance into Claim And Update Work. Validation passed: git diff --check; cargo deny check licenses."
+created_at = "2026-06-26T12:30:54.499373Z"
+
+[[comments]]
+id = "019f03f2-a348-7592-8b01-fb6aa9a36d31"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T12:41:01.000023Z"

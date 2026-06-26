@@ -1,0 +1,13 @@
+id = "019f03b6-1920-7c33-831d-d03281a24fe5"
+ref = "gitrack-s1d"
+title = "Test merge-time ref clash resolution"
+body = "Exercise gitrack ref during a real Git merge conflict/ref-clash scenario. Verify that resolving a user-visible ref clash through the CLI updates the ref symlink and issue ref field without rewriting dependency UUIDs. Cover actual merge-state behaviour, document the recommended flow for agents and humans, and avoid documenting manual symlink edits as the normal resolution path."
+status = "open"
+type = "task"
+priority = 0
+labels = [
+    "refs",
+    "tests",
+]
+created_at = "2026-06-26T11:34:53.4725Z"
+updated_at = "2026-06-26T11:39:24.35745Z"

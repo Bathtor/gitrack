@@ -1,0 +1,18 @@
+[licenses]
+allow = [
+  "GPL-2.0-only",
+  "GPL-2.0-or-later",
+  "LGPL-2.0-only",
+  "LGPL-2.0-or-later",
+  "LGPL-2.1-only",
+  "LGPL-2.1-or-later",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+confidence-threshold = 0.8
