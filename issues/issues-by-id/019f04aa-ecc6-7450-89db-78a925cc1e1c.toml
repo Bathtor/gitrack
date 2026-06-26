@@ -1,9 +1,17 @@
 id = "019f04aa-ecc6-7450-89db-78a925cc1e1c"
 ref = "gitrack-vee"
 title = "Default priority from config"
-body = "We should not enforce a hardcoded default priority in create. Every creator should specify priority explicitly during create, or set a default priority in the config during init, since different workflows have different models. If they want to change it, they can just update the config file manually. I don't want to sprawls the CI size too much"
-status = "open"
+body = "Plan agreed: pivot the work to init-time config customisation. Add gitrack init flags for default_type and default_priority, keep the existing defaults when omitted, document that these defaults are written to .gitrack/config.toml and can later be changed by editing that file directly, and add focused CLI coverage showing init writes the config and create consumes it."
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 3
 created_at = "2026-06-26T16:02:18.438979Z"
-updated_at = "2026-06-26T16:02:18.438979Z"
+updated_at = "2026-06-26T18:21:12.815465Z"
+closed_at = "2026-06-26T18:21:12.815465Z"
+
+[[comments]]
+id = "019f052a-18ef-7f52-8960-554ca6e6bf13"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T18:21:12.815465Z"

@@ -15,6 +15,8 @@ use crate::error::{
 };
 
 pub(crate) const STORE_VERSION: u32 = 1;
+pub(crate) const DEFAULT_ISSUE_TYPE: &str = "task";
+pub(crate) const DEFAULT_ISSUE_PRIORITY: u8 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Config {
@@ -27,13 +29,18 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub(crate) fn new(ref_prefix: IssueRef, issue_dir: IssueDir) -> Self {
+    pub(crate) fn new(
+        ref_prefix: IssueRef,
+        issue_dir: IssueDir,
+        default_issue_type: IssueKind,
+        default_priority: u8,
+    ) -> Self {
         Self {
             version: STORE_VERSION,
             ref_prefix,
             issue_dir,
-            default_issue_type: IssueKind::task(),
-            default_priority: 3,
+            default_issue_type,
+            default_priority,
         }
     }
 }
@@ -138,13 +145,15 @@ impl IssueKind {
         Ok(Self(kind))
     }
 
-    fn task() -> Self {
-        Self("task".to_string())
-    }
-
     #[must_use]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl Default for IssueKind {
+    fn default() -> Self {
+        Self(DEFAULT_ISSUE_TYPE.to_string())
     }
 }
 

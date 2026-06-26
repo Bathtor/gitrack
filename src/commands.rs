@@ -11,7 +11,10 @@ use crate::{
     error::{
         Error, InvalidRelationshipCommandSnafu, InvalidStatusSnafu, ResolvedIssueSnafu, Result,
     },
-    model::{Comment, Issue, IssueKind, IssueLink, IssueRef, IssueStatus, NewIssue, now_rfc3339},
+    model::{
+        Comment, DEFAULT_ISSUE_PRIORITY, DEFAULT_ISSUE_TYPE, Issue, IssueKind, IssueLink, IssueRef,
+        IssueStatus, NewIssue, now_rfc3339,
+    },
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
@@ -42,7 +45,7 @@ pub struct Cli {
 pub(crate) enum Command {
     #[command(
         about = "Initialise issue tracking files in this Git working tree",
-        after_help = "Creates .gitrack/config.toml and the configured issue directory. The default issue directory is ./issues."
+        after_help = "Creates .gitrack/config.toml and the configured issue directory. The default issue directory is ./issues. New issues default to type `task` and priority 3 unless configured during init; those defaults can later be changed by editing .gitrack/config.toml directly."
     )]
     Init(InitArgs),
     #[command(
@@ -117,6 +120,20 @@ pub(crate) struct InitArgs {
         help = "Issue directory relative to the Git root"
     )]
     issue_dir: String,
+
+    #[arg(
+        long,
+        default_value = DEFAULT_ISSUE_TYPE,
+        help = "Default issue type for create when --type is omitted"
+    )]
+    default_type: Option<String>,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_ISSUE_PRIORITY,
+        help = "Default issue priority for create when --priority is omitted"
+    )]
+    default_priority: u8,
 
     #[arg(long, help = "Skip creating or updating AGENTS.md instructions")]
     no_agents: bool,
@@ -377,7 +394,13 @@ pub fn run(cli: Cli) -> Result<()> {
 }
 
 fn init(args: InitArgs, json: bool) -> Result<()> {
-    let store = Store::init(Path::new("."), args.prefix, args.issue_dir)?;
+    let store = Store::init(
+        Path::new("."),
+        args.prefix,
+        args.issue_dir,
+        args.default_type,
+        Some(args.default_priority),
+    )?;
     let agents = if args.no_agents {
         None
     } else {

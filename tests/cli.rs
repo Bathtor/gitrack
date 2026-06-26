@@ -966,6 +966,37 @@ fn init_creates_agents_file_by_default_and_supports_opt_out() {
 }
 
 #[test]
+fn init_customises_config_defaults_used_by_create() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+
+    let init = run_json(
+        &workdir,
+        &[
+            "init",
+            "--json",
+            "--default-type",
+            "bug",
+            "--default-priority",
+            "1",
+        ],
+    );
+    assert_eq!(init["config"]["default_type"], "bug");
+    assert_eq!(init["config"]["default_priority"], 1);
+
+    let config_content =
+        fs::read_to_string(workdir.join(".gitrack/config.toml")).expect("read config");
+    assert!(config_content.contains("default_type = \"bug\""));
+    assert!(config_content.contains("default_priority = 1"));
+
+    let issue = run_json(&workdir, &["--json", "create", "Use configured defaults"]);
+    assert_eq!(issue["type"], "bug");
+    assert_eq!(issue["priority"], 1);
+}
+
+#[test]
 fn agents_update_replaces_managed_block_and_appends_workflow() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");

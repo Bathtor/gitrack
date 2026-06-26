@@ -75,6 +75,14 @@ The default issue directory is `issues`, but it can be changed during init:
 gitrack init --issue-dir tasks # Store issue files under ./tasks.
 ```
 
+New issues default to type `task` and priority `3`. These defaults are written
+to `.gitrack/config.toml`, where they can be changed later by editing the config
+directly. They can also be customised during init:
+
+```bash
+gitrack init --default-type bug --default-priority 1
+```
+
 Issue contents are stored by stable UUID:
 
 ```text
@@ -119,8 +127,14 @@ Pick one of these variants when the defaults are not right for the project:
 
 ```bash
 gitrack init --issue-dir tasks # Store issue files under ./tasks.
+gitrack init --default-type bug --default-priority 1 # Configure create defaults.
 gitrack init --no-agents # Skip creating or updating AGENTS.md.
 ```
+
+By default, `gitrack create` uses type `task` and priority `3` when those fields
+are not provided. `gitrack init --default-type <type> --default-priority <n>`
+writes different defaults into `.gitrack/config.toml`; after init, edit that
+config file directly to adjust them for the repository.
 
 ### Find Work
 

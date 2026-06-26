@@ -23,7 +23,7 @@ use crate::{
         RelationshipMirrorMismatchSnafu, RemoveFileSnafu, Result, SerialiseTomlSnafu,
         WriteFileSnafu,
     },
-    model::{Config, Issue, IssueDir, IssueRef},
+    model::{Config, DEFAULT_ISSUE_PRIORITY, Issue, IssueDir, IssueKind, IssueRef},
 };
 
 const CONFIG_DIR: &str = ".gitrack";
@@ -53,6 +53,8 @@ impl Store {
         start: &Path,
         explicit_prefix: Option<String>,
         issue_dir_config: String,
+        default_issue_type_config: Option<String>,
+        default_priority: Option<u8>,
     ) -> Result<Self> {
         let root = find_git_root(start)?;
         let issue_dir_config = IssueDir::parse(issue_dir_config)?;
@@ -82,7 +84,17 @@ impl Store {
             Some(prefix) => IssueRef::parse(prefix)?,
             None => derive_ref_prefix(&root)?,
         };
-        let config = Config::new(prefix, issue_dir_config);
+        let default_issue_type = match default_issue_type_config {
+            Some(issue_type) => IssueKind::parse(issue_type)?,
+            None => IssueKind::default(),
+        };
+        let default_priority = default_priority.unwrap_or(DEFAULT_ISSUE_PRIORITY);
+        let config = Config::new(
+            prefix,
+            issue_dir_config,
+            default_issue_type,
+            default_priority,
+        );
         let serialised = toml::to_string_pretty(&config).context(SerialiseTomlSnafu)?;
         fs::write(&config_path, serialised).context(WriteFileSnafu {
             path: config_path.clone(),
@@ -969,8 +981,8 @@ mod tests {
         fs::create_dir_all(root.join(".git")).expect("create fake git dir");
         let canonical_root = root.canonicalize().expect("canonical root");
 
-        let store =
-            Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string()).expect("initialise store");
+        let store = Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string(), None, None)
+            .expect("initialise store");
 
         assert_eq!(store.config.ref_prefix.as_str(), "my-project");
         assert_eq!(store.config.issue_dir.as_str(), DEFAULT_ISSUES_DIR);
@@ -995,8 +1007,8 @@ mod tests {
         let temp = tempfile::tempdir().expect("create tempdir");
         let root = temp.path().join("project");
         fs::create_dir_all(root.join(".git")).expect("create fake git dir");
-        let store =
-            Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string()).expect("initialise store");
+        let store = Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string(), None, None)
+            .expect("initialise store");
         fs::remove_dir_all(&store.issues_dir).expect("remove issue dir");
 
         let issues = store.load_issues().expect("load issues");
@@ -1314,8 +1326,8 @@ mod tests {
         let temp = tempfile::tempdir().expect("create tempdir");
         let root = temp.path().join("project");
         fs::create_dir_all(root.join(".git")).expect("create fake git dir");
-        let store =
-            Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string()).expect("initialise store");
+        let store = Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string(), None, None)
+            .expect("initialise store");
         (temp, store)
     }
 
