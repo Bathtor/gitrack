@@ -13,14 +13,29 @@ Scope:
 - Resolve relationship UUIDs to current refs only in output views, not in persisted relationship fields.
 
 Depends on: gitrack-fl8.1 relationship schema and validation."""
-status = "open"
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 2
 labels = [
     "json",
     "relationships",
 ]
+assignee = "codex"
 blocked_by = ["019f048b-470d-7402-932f-7aff312e04d6"]
 blocks = ["019f048b-b830-7640-902c-2ec1b2af405c"]
 created_at = "2026-06-26T15:28:06.180523Z"
-updated_at = "2026-06-26T15:28:38.003703Z"
+updated_at = "2026-06-26T16:18:52.20428Z"
+closed_at = "2026-06-26T16:18:52.20428Z"
+
+[[comments]]
+id = "019f04b8-ffc1-7901-8597-bb13a6dbc2ee"
+author = "codex"
+body = "Implemented the JSON/readiness relationship slice. JSON show/list/export now expose blocks, parent, children, and labelled links with UUIDs resolved to current refs in output views only. Added integration coverage proving parent-child and free-form links remain ready while unresolved blocked_by still blocks ready work. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; cargo-deny check licenses."
+created_at = "2026-06-26T16:17:40.801021Z"
+
+[[comments]]
+id = "019f04ba-16ac-7381-bbd6-5d8642ade248"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T16:18:52.20428Z"

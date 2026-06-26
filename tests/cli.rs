@@ -232,6 +232,109 @@ fn link_and_unlink_manage_labelled_links() {
 }
 
 #[test]
+fn json_views_expose_relationships_without_changing_readiness() {
+    let (_temp, workdir) = initialised_workdir();
+    run_json(
+        &workdir,
+        &["--json", "create", "Parent", "--ref", "project-parent"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Child", "--ref", "project-child"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Source", "--ref", "project-source"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Target", "--ref", "project-target"],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "create",
+            "Prerequisite",
+            "--ref",
+            "project-prereq",
+        ],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Blocked", "--ref", "project-blocked"],
+    );
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-parent",
+            "project-child",
+            "--child",
+        ],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-source",
+            "project-target",
+            "--label",
+            "relates to",
+        ],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-blocked",
+            "project-prereq",
+            "--blocked-by",
+        ],
+    );
+
+    let parent = run_json(&workdir, &["--json", "show", "project-parent"]);
+    assert_eq!(parent["children"][0]["ref"], "project-child");
+    assert_eq!(parent["ready"], true);
+
+    let child = run_json(&workdir, &["--json", "show", "project-child"]);
+    assert_eq!(child["parent"]["ref"], "project-parent");
+    assert_eq!(child["ready"], true);
+
+    let source = run_json(&workdir, &["--json", "show", "project-source"]);
+    assert_eq!(source["links"][0]["target"]["ref"], "project-target");
+    assert_eq!(source["links"][0]["label"], "relates to");
+    assert_eq!(source["ready"], true);
+
+    let prerequisite = run_json(&workdir, &["--json", "show", "project-prereq"]);
+    assert_eq!(prerequisite["blocks"][0]["ref"], "project-blocked");
+
+    let ready = run_json(&workdir, &["--json", "ready"]);
+    let ready_refs = issue_refs(&ready);
+    assert!(ready_refs.contains(&"project-parent"));
+    assert!(ready_refs.contains(&"project-child"));
+    assert!(ready_refs.contains(&"project-source"));
+    assert!(ready_refs.contains(&"project-target"));
+    assert!(!ready_refs.contains(&"project-blocked"));
+
+    let list = run_json(&workdir, &["--json", "list"]);
+    assert_eq!(
+        issue_by_ref(&list, "project-child")["parent"]["ref"],
+        "project-parent"
+    );
+
+    let export = run_json(&workdir, &["export", "json"]);
+    assert_eq!(
+        issue_by_ref(&export, "project-source")["links"][0]["target"]["ref"],
+        "project-target"
+    );
+}
+
+#[test]
 fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -770,6 +873,24 @@ fn issue_ref(issue: &Value) -> String {
     issue["ref"].as_str().expect("issue ref").to_string()
 }
 
+fn issue_refs(value: &Value) -> Vec<&str> {
+    value["issues"]
+        .as_array()
+        .expect("issues array")
+        .iter()
+        .map(|issue| issue["ref"].as_str().expect("issue ref"))
+        .collect()
+}
+
+fn issue_by_ref<'value>(value: &'value Value, reference: &str) -> &'value Value {
+    value["issues"]
+        .as_array()
+        .expect("issues array")
+        .iter()
+        .find(|issue| issue["ref"].as_str() == Some(reference))
+        .expect("issue with ref")
+}
+
 fn issue_file_path(workdir: &Path, issue_id: &str) -> std::path::PathBuf {
     workdir
         .join("issues")
@@ -838,12 +959,7 @@ fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
 }
 
 fn assert_refs(value: &Value, expected_refs: &[&str]) {
-    let refs = value["issues"]
-        .as_array()
-        .expect("issues array")
-        .iter()
-        .map(|issue| issue["ref"].as_str().expect("issue ref"))
-        .collect::<Vec<_>>();
+    let refs = issue_refs(value);
     assert_eq!(refs, expected_refs);
 }
 

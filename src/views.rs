@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     agents::AgentsUpdateResult,
     error::{Result, SerialiseJsonSnafu, WriteStdoutSnafu},
-    model::{Comment, Config, Issue, IssueKind, IssueRef, IssueStatus},
+    model::{Comment, Config, Issue, IssueKind, IssueLink, IssueRef, IssueStatus},
     readiness::{issue_is_ready, issue_map},
     store::Store,
 };
@@ -473,6 +473,10 @@ struct IssueView {
     labels: Vec<String>,
     assignee: Option<String>,
     blocked_by: Vec<DependencyView>,
+    blocks: Vec<DependencyView>,
+    parent: Option<DependencyView>,
+    children: Vec<DependencyView>,
+    links: Vec<LinkView>,
     ready: bool,
     created_at: String,
     updated_at: String,
@@ -499,12 +503,45 @@ impl IssueView {
                 .iter()
                 .map(|id| DependencyView::from_id(issues, *id))
                 .collect(),
+            blocks: issue
+                .blocks
+                .iter()
+                .map(|id| DependencyView::from_id(issues, *id))
+                .collect(),
+            parent: issue
+                .parent
+                .map(|parent_id| DependencyView::from_id(issues, parent_id)),
+            children: issue
+                .children
+                .iter()
+                .map(|id| DependencyView::from_id(issues, *id))
+                .collect(),
+            links: issue
+                .links
+                .iter()
+                .map(|link| LinkView::from_link(issues, link))
+                .collect(),
             ready: issue_is_ready(issue, &by_id)?,
             created_at: issue.created_at.clone(),
             updated_at: issue.updated_at.clone(),
             closed_at: issue.closed_at.clone(),
             comments: issue.comments.clone(),
         })
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct LinkView {
+    target: DependencyView,
+    label: String,
+}
+
+impl LinkView {
+    fn from_link(issues: &[Issue], link: &IssueLink) -> Self {
+        Self {
+            target: DependencyView::from_id(issues, link.target),
+            label: link.label.clone(),
+        }
     }
 }
 
