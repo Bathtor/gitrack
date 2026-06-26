@@ -14,10 +14,12 @@ use uuid::Uuid;
 use crate::{
     error::{
         AlreadyInitialisedSnafu, AmbiguousIssueSnafu, CanonicalisePathSnafu, CreateDirSnafu,
-        CurrentDirSnafu, DuplicateIssueIdSnafu, DuplicateIssueRefSnafu, InvalidIssueDirSnafu,
-        InvalidIssueFileNameSnafu, InvalidRefSnafu, IssueFileNameMismatchSnafu, IssueNotFoundSnafu,
-        MissingStoreSnafu, NotGitRepositorySnafu, ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu,
-        RefExistsSnafu, Result, SerialiseTomlSnafu, WriteFileSnafu,
+        CreateSymlinkSnafu, CurrentDirSnafu, DuplicateIssueIdSnafu, DuplicateIssueRefSnafu,
+        InvalidIssueDirSnafu, InvalidIssueFileNameSnafu, InvalidRefAliasSnafu, InvalidRefSnafu,
+        IssueFileNameMismatchSnafu, IssueNotFoundSnafu, MissingRefAliasSnafu, MissingStoreSnafu,
+        NotGitRepositorySnafu, ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu, ReadLinkSnafu,
+        ReadMetadataSnafu, RefAliasTargetMismatchSnafu, RefExistsSnafu, RemoveFileSnafu, Result,
+        SerialiseTomlSnafu, WriteFileSnafu,
     },
     model::{Config, Issue},
 };
@@ -25,6 +27,8 @@ use crate::{
 const CONFIG_DIR: &str = ".gitrack";
 pub(crate) const DEFAULT_ISSUES_DIR: &str = "issues";
 const CONFIG_FILE: &str = "config.toml";
+const ISSUES_BY_ID_DIR: &str = "issues-by-id";
+const REF_ALIAS_EXTENSION: &str = "toml";
 const MIN_GENERATED_REF_SUFFIX_LEN: usize = 3;
 const BASE36_DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -61,6 +65,10 @@ impl Store {
         })?;
         fs::create_dir_all(&issues_dir).context(CreateDirSnafu {
             path: issues_dir.clone(),
+        })?;
+        let canonical_dir = issues_dir.join(ISSUES_BY_ID_DIR);
+        fs::create_dir_all(&canonical_dir).context(CreateDirSnafu {
+            path: canonical_dir.clone(),
         })?;
 
         let prefix = match explicit_prefix {
@@ -119,12 +127,13 @@ impl Store {
 
     pub(crate) fn load_issues(&self) -> Result<Vec<Issue>> {
         let mut issues = Vec::new();
-        let entries = match fs::read_dir(&self.issues_dir) {
+        let canonical_dir = self.issue_data_dir();
+        let entries = match fs::read_dir(&canonical_dir) {
             Ok(entries) => entries,
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(issues),
             Err(source) => {
                 return Err(source).context(ReadDirSnafu {
-                    path: self.issues_dir.clone(),
+                    path: canonical_dir,
                 });
             }
         };
@@ -133,10 +142,10 @@ impl Store {
 
         for entry in entries {
             let entry = entry.context(ReadDirSnafu {
-                path: self.issues_dir.clone(),
+                path: self.issue_data_dir(),
             })?;
             let path = entry.path();
-            if path.extension() != Some(OsStr::new("toml")) {
+            if path.extension() != Some(OsStr::new(REF_ALIAS_EXTENSION)) {
                 continue;
             }
             let file_id = issue_id_from_path(&path)?;
@@ -174,21 +183,37 @@ impl Store {
         }
 
         issues.sort_by_key(|issue| issue.id);
+        self.validate_ref_aliases(&issues)?;
         Ok(issues)
     }
 
     pub(crate) fn save_issue(&self, issue: &Issue) -> Result<()> {
+        validate_ref(&issue.reference)?;
         let path = self.issue_path(issue.id);
         fs::create_dir_all(&self.issues_dir).context(CreateDirSnafu {
             path: self.issues_dir.clone(),
         })?;
+        let canonical_dir = self.issue_data_dir();
+        fs::create_dir_all(&canonical_dir).context(CreateDirSnafu {
+            path: canonical_dir.clone(),
+        })?;
         let serialised = toml::to_string_pretty(issue).context(SerialiseTomlSnafu)?;
         fs::write(&path, serialised).context(WriteFileSnafu { path })?;
+        self.ensure_ref_alias(issue)?;
+        self.remove_stale_ref_aliases(issue)?;
         Ok(())
     }
 
     pub(crate) fn issue_path(&self, id: Uuid) -> PathBuf {
-        self.issues_dir.join(format!("{id}.toml"))
+        self.issue_data_dir().join(format!("{id}.toml"))
+    }
+
+    pub(crate) fn issue_data_dir(&self) -> PathBuf {
+        self.issues_dir.join(ISSUES_BY_ID_DIR)
+    }
+
+    pub(crate) fn ref_alias_path(&self, reference: &str) -> PathBuf {
+        self.issues_dir.join(format!("{reference}.toml"))
     }
 
     pub(crate) fn resolve_issue<'issues>(
@@ -267,6 +292,154 @@ impl Store {
 
         generated_ref_for_token(&self.config.ref_prefix, &token, &existing_refs)
     }
+
+    /// Ensure the issue's current ref has a valid alias, creating it when absent.
+    fn ensure_ref_alias(&self, issue: &Issue) -> Result<()> {
+        let alias_path = self.ref_alias_path(&issue.reference);
+        match fs::symlink_metadata(&alias_path) {
+            Ok(_metadata) => Self::validate_alias_path(&alias_path, &issue.reference, issue.id),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                let target = ref_alias_target(issue.id);
+                create_issue_symlink(&target, &alias_path)
+            }
+            Err(source) => Err(source).context(ReadMetadataSnafu { path: alias_path }),
+        }
+    }
+
+    /// Remove old aliases that still point at this issue after a ref rename.
+    fn remove_stale_ref_aliases(&self, issue: &Issue) -> Result<()> {
+        let entries = match fs::read_dir(&self.issues_dir) {
+            Ok(entries) => entries,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(source).context(ReadDirSnafu {
+                    path: self.issues_dir.clone(),
+                });
+            }
+        };
+        let expected_target = ref_alias_target(issue.id);
+
+        for entry in entries {
+            let entry = entry.context(ReadDirSnafu {
+                path: self.issues_dir.clone(),
+            })?;
+            let path = entry.path();
+            if is_issue_data_dir_path(&path) {
+                continue;
+            }
+
+            let metadata =
+                fs::symlink_metadata(&path).context(ReadMetadataSnafu { path: path.clone() })?;
+            if !metadata.file_type().is_symlink() {
+                continue;
+            }
+
+            let reference = alias_reference_from_path(&path)?;
+            if reference == issue.reference {
+                continue;
+            }
+
+            let target = fs::read_link(&path).context(ReadLinkSnafu { path: path.clone() })?;
+            if target == expected_target {
+                fs::remove_file(&path).context(RemoveFileSnafu { path })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate the bidirectional invariant between issue refs and alias paths.
+    fn validate_ref_aliases(&self, issues: &[Issue]) -> Result<()> {
+        let mut refs_by_name = HashMap::new();
+        for issue in issues {
+            let alias_path = self.ref_alias_path(&issue.reference);
+            Self::validate_alias_path(&alias_path, &issue.reference, issue.id)?;
+            refs_by_name.insert(issue.reference.as_str(), issue.id);
+        }
+
+        let entries = match fs::read_dir(&self.issues_dir) {
+            Ok(entries) => entries,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(source).context(ReadDirSnafu {
+                    path: self.issues_dir.clone(),
+                });
+            }
+        };
+
+        for entry in entries {
+            let entry = entry.context(ReadDirSnafu {
+                path: self.issues_dir.clone(),
+            })?;
+            let path = entry.path();
+            if is_issue_data_dir_path(&path) {
+                let metadata = fs::symlink_metadata(&path)
+                    .context(ReadMetadataSnafu { path: path.clone() })?;
+                ensure!(
+                    metadata.is_dir(),
+                    InvalidRefAliasSnafu {
+                        path,
+                        reason: format!("reserved path `{ISSUES_BY_ID_DIR}` must be a directory")
+                    }
+                );
+                continue;
+            }
+
+            let reference = alias_reference_from_path(&path)?;
+            validate_ref(&reference)?;
+            let Some(id) = refs_by_name.get(reference.as_str()) else {
+                return InvalidRefAliasSnafu {
+                    path,
+                    reason: format!("ref `{reference}` does not match any issue"),
+                }
+                .fail();
+            };
+            Self::validate_alias_path(&path, &reference, *id)?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate one alias as a relative symlink to the canonical UUID file.
+    fn validate_alias_path(path: &Path, reference: &str, id: Uuid) -> Result<()> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                return MissingRefAliasSnafu {
+                    reference: reference.to_string(),
+                    path: path.to_path_buf(),
+                }
+                .fail();
+            }
+            Err(source) => {
+                return Err(source).context(ReadMetadataSnafu {
+                    path: path.to_path_buf(),
+                });
+            }
+        };
+
+        ensure!(
+            metadata.file_type().is_symlink(),
+            InvalidRefAliasSnafu {
+                path: path.to_path_buf(),
+                reason: "must be a symlink".to_string()
+            }
+        );
+
+        let target = fs::read_link(path).context(ReadLinkSnafu {
+            path: path.to_path_buf(),
+        })?;
+        let expected_target = ref_alias_target(id);
+        ensure!(
+            target == expected_target,
+            RefAliasTargetMismatchSnafu {
+                path: path.to_path_buf(),
+                expected: expected_target,
+                actual: target
+            }
+        );
+        Ok(())
+    }
 }
 
 pub(crate) fn normalise_labels(labels: Vec<String>) -> Vec<String> {
@@ -316,7 +489,28 @@ pub(crate) fn validate_ref(reference: &str) -> Result<()> {
         reference.chars().all(is_ref_char),
         InvalidRefSnafu {
             reference: reference.to_string(),
-            reason: "only ASCII letters, digits, dots, underscores, colons, and dashes are supported"
+            reason: "only ASCII letters, digits, dots, underscores, and dashes are supported"
+        }
+    );
+    ensure!(
+        reference != "." && reference != "..",
+        InvalidRefSnafu {
+            reference: reference.to_string(),
+            reason: "must be usable as a file name"
+        }
+    );
+    ensure!(
+        reference != ISSUES_BY_ID_DIR,
+        InvalidRefSnafu {
+            reference: reference.to_string(),
+            reason: "`issues-by-id` is reserved for canonical issue files"
+        }
+    );
+    ensure!(
+        !reference.to_ascii_lowercase().ends_with(".toml"),
+        InvalidRefSnafu {
+            reference: reference.to_string(),
+            reason: "must not end in .toml; alias paths add that extension"
         }
     );
     Ok(())
@@ -429,6 +623,72 @@ fn issue_id_from_path(path: &Path) -> Result<Uuid> {
     })
 }
 
+/// Extract the logical ref from a top-level `<ref>.toml` alias path.
+fn alias_reference_from_path(path: &Path) -> Result<String> {
+    let Some(file_name) = path.file_name().and_then(OsStr::to_str) else {
+        return InvalidRefAliasSnafu {
+            path: path.to_path_buf(),
+            reason: "file name must be valid UTF-8".to_string(),
+        }
+        .fail();
+    };
+
+    ensure!(
+        path.extension() == Some(OsStr::new(REF_ALIAS_EXTENSION)),
+        InvalidRefAliasSnafu {
+            path: path.to_path_buf(),
+            reason: "alias file name must end in .toml".to_string()
+        }
+    );
+
+    let Some(reference) = path.file_stem().and_then(OsStr::to_str) else {
+        return InvalidRefAliasSnafu {
+            path: path.to_path_buf(),
+            reason: format!("alias file name `{file_name}` must contain a ref before .toml"),
+        }
+        .fail();
+    };
+
+    Ok(reference.to_string())
+}
+
+/// Build the tracked relative symlink target used for issue ref aliases.
+fn ref_alias_target(id: Uuid) -> PathBuf {
+    PathBuf::from(format!("{ISSUES_BY_ID_DIR}/{id}.toml"))
+}
+
+fn is_issue_data_dir_path(path: &Path) -> bool {
+    path.file_name() == Some(OsStr::new(ISSUES_BY_ID_DIR))
+}
+
+#[cfg(unix)]
+/// Create an issue ref alias symlink on Unix platforms.
+fn create_issue_symlink(target: &Path, path: &Path) -> Result<()> {
+    std::os::unix::fs::symlink(target, path).context(CreateSymlinkSnafu {
+        path: path.to_path_buf(),
+        target: target.to_path_buf(),
+    })
+}
+
+#[cfg(windows)]
+/// Create an issue ref alias symlink on Windows platforms.
+fn create_issue_symlink(target: &Path, path: &Path) -> Result<()> {
+    std::os::windows::fs::symlink_file(target, path).context(CreateSymlinkSnafu {
+        path: path.to_path_buf(),
+        target: target.to_path_buf(),
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+/// Report unsupported symlink creation on platforms without a known API.
+fn create_issue_symlink(target: &Path, path: &Path) -> Result<()> {
+    crate::error::UnsupportedSymlinkSnafu {
+        path: path.to_path_buf(),
+        target: target.to_path_buf(),
+    }
+    .fail()
+}
+
 fn generated_ref_for_token(
     prefix: &str,
     token: &str,
@@ -492,11 +752,7 @@ fn derive_ref_prefix(root: &Path) -> Result<String> {
 }
 
 fn is_ref_char(character: char) -> bool {
-    character.is_ascii_alphanumeric()
-        || character == '.'
-        || character == '_'
-        || character == ':'
-        || character == '-'
+    character.is_ascii_alphanumeric() || character == '.' || character == '_' || character == '-'
 }
 
 #[cfg(test)]
@@ -578,6 +834,13 @@ mod tests {
             canonical_root.join(CONFIG_DIR).join(CONFIG_FILE)
         );
         assert_eq!(store.issues_dir, canonical_root.join(DEFAULT_ISSUES_DIR));
+        assert_eq!(
+            store.issue_data_dir(),
+            canonical_root
+                .join(DEFAULT_ISSUES_DIR)
+                .join(ISSUES_BY_ID_DIR)
+        );
+        assert!(store.issue_data_dir().exists());
     }
 
     #[test]
@@ -587,7 +850,7 @@ mod tests {
         fs::create_dir_all(root.join(".git")).expect("create fake git dir");
         let store =
             Store::init(&root, None, DEFAULT_ISSUES_DIR.to_string()).expect("initialise store");
-        fs::remove_dir(&store.issues_dir).expect("remove empty issue dir");
+        fs::remove_dir_all(&store.issues_dir).expect("remove issue dir");
 
         let issues = store.load_issues().expect("load issues");
         assert!(issues.is_empty());
@@ -597,6 +860,34 @@ mod tests {
 
         assert!(store.issues_dir.exists());
         assert!(store.issue_path(issue.id).exists());
+        assert_ref_alias(&store, &issue);
+    }
+
+    #[test]
+    fn save_issue_creates_ref_alias() {
+        let (_temp, store) = test_store();
+        let issue = test_issue("project-a1b2c3d4");
+
+        store.save_issue(&issue).expect("save issue");
+
+        assert_ref_alias(&store, &issue);
+    }
+
+    #[test]
+    fn save_issue_removes_stale_ref_alias_on_ref_rename() {
+        let (_temp, store) = test_store();
+        let mut issue = test_issue("project-a1b2c3d4");
+        store.save_issue(&issue).expect("save issue");
+        let old_alias_path = store.ref_alias_path(&issue.reference);
+
+        issue.reference = "project-renamed".to_string();
+        store.save_issue(&issue).expect("save renamed issue");
+
+        assert!(fs::symlink_metadata(old_alias_path).is_err());
+        assert_ref_alias(&store, &issue);
+        let issues = store.load_issues().expect("load issues");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].reference, "project-renamed");
     }
 
     #[test]
@@ -617,7 +908,9 @@ mod tests {
         let issue = test_issue("project-a1b2c3d4");
         write_issue(&store.issue_path(issue.id), &issue);
         write_issue(
-            &store.issues_dir.join(format!("{}.toml", issue.id.simple())),
+            &store
+                .issue_data_dir()
+                .join(format!("{}.toml", issue.id.simple())),
             &issue,
         );
 
@@ -640,6 +933,58 @@ mod tests {
     }
 
     #[test]
+    fn missing_ref_aliases_are_rejected() {
+        let (_temp, store) = test_store();
+        let issue = test_issue("project-a1b2c3d4");
+        write_issue(&store.issue_path(issue.id), &issue);
+
+        let error = store.load_issues().expect_err("missing ref alias");
+
+        assert!(matches!(error, Error::MissingRefAlias { .. }));
+    }
+
+    #[test]
+    fn non_symlink_ref_aliases_are_rejected() {
+        let (_temp, store) = test_store();
+        let issue = test_issue("project-a1b2c3d4");
+        write_issue(&store.issue_path(issue.id), &issue);
+        fs::write(store.ref_alias_path(&issue.reference), b"not a symlink")
+            .expect("write alias file");
+
+        let error = store.load_issues().expect_err("non-symlink ref alias");
+
+        assert!(matches!(error, Error::InvalidRefAlias { .. }));
+    }
+
+    #[test]
+    fn stale_ref_alias_targets_are_rejected() {
+        let (_temp, store) = test_store();
+        let issue = test_issue("project-a1b2c3d4");
+        write_issue(&store.issue_path(issue.id), &issue);
+        let alias_path = store.ref_alias_path(&issue.reference);
+        let wrong_target = ref_alias_target(Uuid::now_v7());
+        create_issue_symlink(&wrong_target, &alias_path).expect("create stale ref alias");
+
+        let error = store.load_issues().expect_err("stale ref alias");
+
+        assert!(matches!(error, Error::RefAliasTargetMismatch { .. }));
+    }
+
+    #[test]
+    fn extra_ref_aliases_are_rejected() {
+        let (_temp, store) = test_store();
+        let issue = test_issue("project-a1b2c3d4");
+        store.save_issue(&issue).expect("save issue");
+        let alias_path = store.ref_alias_path("project-extra");
+        let target = ref_alias_target(issue.id);
+        create_issue_symlink(&target, &alias_path).expect("create extra ref alias");
+
+        let error = store.load_issues().expect_err("extra ref alias");
+
+        assert!(matches!(error, Error::InvalidRefAlias { .. }));
+    }
+
+    #[test]
     fn issue_dir_must_be_relative() {
         assert!(validate_issue_dir("/tmp/issues").is_err());
     }
@@ -648,6 +993,13 @@ mod tests {
     fn issue_dir_must_not_escape_root() {
         assert!(validate_issue_dir("../issues").is_err());
         assert!(validate_issue_dir("nested/../../issues").is_err());
+    }
+
+    #[test]
+    fn refs_must_not_collide_with_reserved_paths() {
+        assert!(validate_ref(ISSUES_BY_ID_DIR).is_err());
+        assert!(validate_ref("project-a1b2c3d4.toml").is_err());
+        assert!(validate_ref("project:a1b2c3d4").is_err());
     }
 
     fn test_store() -> (tempfile::TempDir, Store) {
@@ -679,5 +1031,13 @@ mod tests {
     fn write_issue(path: &Path, issue: &Issue) {
         let serialised = toml::to_string_pretty(issue).expect("serialise issue");
         fs::write(path, serialised).expect("write issue");
+    }
+
+    fn assert_ref_alias(store: &Store, issue: &Issue) {
+        let alias_path = store.ref_alias_path(&issue.reference);
+        let metadata = fs::symlink_metadata(&alias_path).expect("read alias metadata");
+        assert!(metadata.file_type().is_symlink());
+        let target = fs::read_link(alias_path).expect("read alias target");
+        assert_eq!(target, ref_alias_target(issue.id));
     }
 }

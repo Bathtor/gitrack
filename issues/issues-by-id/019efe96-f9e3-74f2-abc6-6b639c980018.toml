@@ -1,0 +1,27 @@
+id = "019efe96-f9e3-74f2-abc6-6b639c980018"
+ref = "gitrack-aa3"
+title = "Add symlink ref aliases for merge-time conflict detection"
+body = """
+Implement tracked symlink aliases for user-visible refs so duplicate refs become ordinary Git path conflicts.
+
+Plan:
+S1. Storage layout: keep canonical issue files as issues/issues-by-id/<uuid>.toml and add top-level symlink aliases at issues/<ref>.toml pointing to issues-by-id/<uuid>.toml. Estimated 40-70 LOC.
+S2. Creation and rename: create the alias symlink whenever an issue is saved with a new ref, and replace the alias when refs are renamed. Explicit child refs such as parent.1 remain logical refs and map to paths such as parent.1.toml. Estimated 80-130 LOC.
+S3. Validation: load should reject duplicate refs, missing aliases, stale aliases, aliases pointing outside the issue directory, non-symlink alias entries, aliases whose target issue has a different ref, and logical refs that collide with reserved layout names or end in .toml. Estimated 120-200 LOC.
+S4. Portability: use platform symlink APIs where available and fail with a clear error if symlink creation is unsupported or disabled. Do not silently fall back to pointer files. Estimated 30-60 LOC.
+S5. Tests: cover init/create alias creation, ref rename cleanup, duplicate/stale alias validation, child refs, and reserved ref names. Estimated 120-220 LOC.
+
+Total estimate: roughly 390-680 LOC, below 1000 LOC.
+
+Non-goal: the closed hook task gitrack-1y4 is not the primary merge-time duplicate-ref mechanism. A future validate command can still be useful as a secondary check."""
+status = "open"
+type = "task"
+priority = 3
+labels = [
+    "design",
+    "symlinks",
+    "validation",
+]
+assignee = "lkroll"
+created_at = "2026-06-25T11:42:47.779723Z"
+updated_at = "2026-06-26T07:40:11.761665Z"

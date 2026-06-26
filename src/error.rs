@@ -45,11 +45,47 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    #[snafu(display("failed to read metadata for {}: {source}", path.display()))]
+    ReadMetadata {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("failed to read symlink {}: {source}", path.display()))]
+    ReadLink {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
     #[snafu(display("failed to write {}: {source}", path.display()))]
     WriteFile {
         path: PathBuf,
         source: std::io::Error,
     },
+
+    #[snafu(display("failed to remove {}: {source}", path.display()))]
+    RemoveFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[snafu(display(
+        "failed to create symlink {} -> {}: {source}",
+        path.display(),
+        target.display()
+    ))]
+    CreateSymlink {
+        path: PathBuf,
+        target: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[snafu(display(
+        "symlink ref aliases are not supported on this platform: {} -> {}",
+        path.display(),
+        target.display()
+    ))]
+    UnsupportedSymlink { path: PathBuf, target: PathBuf },
 
     #[snafu(display("failed to parse TOML from {}: {source}", path.display()))]
     ParseToml {
@@ -109,6 +145,24 @@ pub enum Error {
         reference: String,
         first_id: uuid::Uuid,
         duplicate_id: uuid::Uuid,
+    },
+
+    #[snafu(display("missing ref alias `{reference}` at {}", path.display()))]
+    MissingRefAlias { reference: String, path: PathBuf },
+
+    #[snafu(display("invalid ref alias {}: {reason}", path.display()))]
+    InvalidRefAlias { path: PathBuf, reason: String },
+
+    #[snafu(display(
+        "ref alias {} points to {}, but expected {}",
+        path.display(),
+        actual.display(),
+        expected.display()
+    ))]
+    RefAliasTargetMismatch {
+        path: PathBuf,
+        expected: PathBuf,
+        actual: PathBuf,
     },
 
     #[snafu(display("ref `{reference}` is already used by another issue"))]
