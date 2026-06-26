@@ -95,12 +95,12 @@ form to rename one side, for example `gitrack ref <uuid> <new-ref>`, then stage
 the resolved issue files with Git.
 
 Issue files are readable TOML and include fields for UUID, ref, title, body,
-status, status reason, type, priority, labels, assignee, blockers, timestamps,
-and comments.
+status, status reason, type, priority, labels, assignee, relationships,
+timestamps, and comments.
 
 ## Common Workflows
 
-[Bootstrap](#bootstrap-tracking) | [Find work](#find-work) | [Create and organise](#create-and-organise-work) | [Claim and update](#claim-and-update-work) | [Manage blockers](#manage-blockers) | [Close or reopen](#close-or-reopen-work) | [Export](#export-for-agents-and-tools)
+[Bootstrap](#bootstrap-tracking) | [Find work](#find-work) | [Create and organise](#create-and-organise-work) | [Claim and update](#claim-and-update-work) | [Manage relationships](#manage-relationships) | [Close or reopen](#close-or-reopen-work) | [Export](#export-for-agents-and-tools)
 
 ### Bootstrap Tracking
 
@@ -133,8 +133,8 @@ gitrack show gitrack-abc # Inspect one issue before claiming it.
 
 Use `gitrack ready` when choosing what to work on next. It filters out claimed
 work and work blocked by unresolved dependencies. Use `gitrack show` before
-claiming when an agent or human needs the full body, metadata, blockers, and
-comments.
+claiming when an agent or human needs the full body, metadata, relationships,
+and comments.
 
 Use `gitrack list` for broader scans:
 
@@ -206,22 +206,44 @@ gitrack update gitrack-abc --status-reason "in review" # Mark work ready for rev
 Common project-specific reasons include `planning`, `plan agreed`, `in review`,
 `completed`, and `won't do`.
 
-### Manage Blockers
+### Manage Relationships
 
 TL;DR:
 
 ```bash
+gitrack link gitrack-epic gitrack-epic.1 --child # Make gitrack-epic.1 a child.
 gitrack link gitrack-abc gitrack-def --blocked-by # Add gitrack-def as a blocker.
+gitrack link gitrack-abc gitrack-def --label "discovered from" # Add a labelled link.
 gitrack unlink gitrack-abc gitrack-def --blocked-by # Remove that blocker.
 gitrack ready # Recompute ready work after dependency changes.
 ```
 
-Use blockers when one issue cannot proceed until another issue is closed. The
+Use relationships to keep split work navigable without changing the source of
+truth. Parent/child links are for hierarchy, `--blocked-by` links are for
+ordering constraints, and labelled links are for loose context such as
+`discovered from` or `relates to`.
+
+When splitting a larger task, create child issues with explicit dotted refs and
+link them back to their parent:
+
+```bash
+gitrack create "Document link output" --ref gitrack-abc.1 # Create a child-shaped ref.
+gitrack link gitrack-abc gitrack-abc.1 --child # Record the parent/child relation.
+```
+
+When one slice must land before another, add a blocking relationship. The
 `--blocked-by` selector is explicit about direction: the target issue blocks
 the source issue.
 
 ```bash
 gitrack link gitrack-abc gitrack-def --blocked-by # Make gitrack-def block gitrack-abc.
+```
+
+Free-form links are one-way by default. Use `--bidirectional` as a shorthand
+when both directions are useful.
+
+```bash
+gitrack link gitrack-abc gitrack-def --label "relates to" --bidirectional # Link both ways.
 ```
 
 ### Close Or Reopen Work

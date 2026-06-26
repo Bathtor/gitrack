@@ -79,7 +79,7 @@ pub(crate) enum Command {
     Claim(ClaimArgs),
     #[command(
         about = "Create a relationship between two issues",
-        after_help = "Defaults to a free-form `relates to` link. Use --child for hierarchy or --blocked-by for blocking dependencies."
+        after_help = "Defaults to a free-form `relates to` link. Use --child for hierarchy, --blocked-by for ordering constraints, --label for one-way context, and --bidirectional for two free-form links."
     )]
     Link(LinkArgs),
     #[command(

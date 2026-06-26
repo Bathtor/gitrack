@@ -24,8 +24,9 @@ labels = [
 assignee = "codex"
 blocked_by = ["019f048b-470d-7402-932f-7aff312e04d6"]
 blocks = ["019f048b-b830-7640-902c-2ec1b2af405c"]
+parent = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
 created_at = "2026-06-26T15:28:06.180523Z"
-updated_at = "2026-06-26T16:18:52.20428Z"
+updated_at = "2026-06-26T16:27:13.957631Z"
 closed_at = "2026-06-26T16:18:52.20428Z"
 
 [[comments]]

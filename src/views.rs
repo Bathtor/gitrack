@@ -58,7 +58,7 @@ pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Iss
     let badge = detail_badge(&palette, issue, blocked);
 
     println!("{marker} {reference} [{kind}] · {title}   [{badge}]");
-    println!("{}", metadata_line(&palette, issue, ready, blocked));
+    println!("{}", metadata_line(&palette, issues, issue, ready, blocked));
     println!("{}", timestamp_line(issue));
     println!("{}", palette.paint(HumanRole::Muted, uuid_line(issue)));
 
@@ -67,10 +67,33 @@ pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Iss
         println!("{}", issue.body);
     }
 
+    if !issue.children.is_empty() {
+        print_section_heading(&palette, "CHILDREN");
+        for child_id in &issue.children {
+            println!("  {}", dependency_summary(&palette, issues, *child_id));
+        }
+    }
+
     if !issue.blocked_by.is_empty() {
         print_section_heading(&palette, "BLOCKERS");
         for blocker_id in &issue.blocked_by {
             println!("  {}", dependency_summary(&palette, issues, *blocker_id));
+        }
+    }
+
+    if !issue.blocks.is_empty() {
+        print_section_heading(&palette, "BLOCKS");
+        for blocked_id in &issue.blocks {
+            println!("  {}", dependency_summary(&palette, issues, *blocked_id));
+        }
+    }
+
+    if !issue.links.is_empty() {
+        print_section_heading(&palette, "LINKS");
+        for link in &issue.links {
+            let label = palette.paint(HumanRole::Label, &link.label);
+            let target = dependency_summary(&palette, issues, link.target);
+            println!("  {label}: {target}");
         }
     }
 
@@ -234,7 +257,13 @@ fn detail_badge(palette: &HumanPalette, issue: &Issue, blocked: bool) -> String 
     format!("{priority} · {status}")
 }
 
-fn metadata_line(palette: &HumanPalette, issue: &Issue, ready: bool, blocked: bool) -> String {
+fn metadata_line(
+    palette: &HumanPalette,
+    issues: &[Issue],
+    issue: &Issue,
+    ready: bool,
+    blocked: bool,
+) -> String {
     let owner = issue.assignee.as_deref().map_or_else(
         || palette.paint(HumanRole::Muted, "<unclaimed>"),
         |assignee| palette.paint(HumanRole::IssueRef, assignee),
@@ -247,6 +276,12 @@ fn metadata_line(palette: &HumanPalette, issue: &Issue, ready: bool, blocked: bo
         format!("Owner: {owner}"),
         format!("Availability: {availability}"),
     ];
+    if let Some(parent_id) = issue.parent {
+        parts.insert(
+            1,
+            format!("Parent: {}", issue_ref_or_uuid(palette, issues, parent_id)),
+        );
+    }
     if let Some(status_reason) = &issue.status_reason {
         let status_reason = palette.paint(status_role(issue, blocked), status_reason);
         parts.insert(
@@ -261,6 +296,13 @@ fn metadata_line(palette: &HumanPalette, issue: &Issue, ready: bool, blocked: bo
         ));
     }
     parts.join(" · ")
+}
+
+fn issue_ref_or_uuid(palette: &HumanPalette, issues: &[Issue], id: Uuid) -> String {
+    issues.iter().find(|issue| issue.id == id).map_or_else(
+        || palette.paint(HumanRole::Blocked, id.to_string()),
+        |issue| palette.paint(HumanRole::IssueRef, issue.reference.to_string()),
+    )
 }
 
 fn label_summary<'labels>(
@@ -613,15 +655,22 @@ mod tests {
     #[test]
     fn show_header_values_use_semantic_roles() {
         let palette = test_palette("ln=32:ex=33:or=35:fi=37");
+        let parent = test_issue("gitrack-parent", IssueStatus::InProgress, 1);
         let mut issue = test_issue("gitrack-work", IssueStatus::InProgress, 3);
         issue.assignee = Some("codex".to_string());
+        issue.parent = Some(parent.id);
         issue.status_reason = Some("in review".to_string());
+        let issues = vec![parent, issue.clone()];
 
-        let line = metadata_line(&palette, &issue, false, false);
+        let line = metadata_line(&palette, &issues, &issue, false, false);
 
         assert!(line.contains(&format!(
             "Owner: {}",
             palette.paint(HumanRole::IssueRef, "codex")
+        )));
+        assert!(line.contains(&format!(
+            "Parent: {}",
+            palette.paint(HumanRole::IssueRef, "gitrack-parent")
         )));
         assert!(line.contains(&format!(
             "Phase: {}",

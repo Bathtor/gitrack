@@ -62,6 +62,9 @@ This project uses `gitrack` for Git-native issue tracking. Issue state lives in 
 - Use `gitrack show <ref> --json` before changing an issue.
 - Use `gitrack claim <ref> --assignee <name> --json` before starting assigned work.
 - Use `gitrack update <ref> --body <text> --json` to keep the current issue description and plan up to date.
+- Use `gitrack link <parent> <child> --child --json` when splitting work into child issues.
+- Use `gitrack link <issue> <blocker> --blocked-by --json` when one issue must wait for another.
+- Use labelled `gitrack link <source> <target> --label <label> --json` for loose one-way context.
 - Use comments for chronological notes, review observations, and progress history.
 - Close issues with `gitrack close <ref> --reason <reason> --json`.
 - Do not create parallel TODO lists when the item should be tracked as an issue.
@@ -92,10 +95,12 @@ This project uses `gitrack` for Git-native issue tracking. Issue state lives in 
 5. Set `status_reason = "planning"` while preparing the implementation plan.
 6. Align on a concrete plan with the user before implementation.
 7. Store the agreed plan in the issue body.
-8. Once the user agrees, set `status_reason = "plan agreed"`.
-9. Implement against the agreed plan.
-10. Before handing work over for review, compare the result against the issue body and agreed plan.
-11. Set `status_reason = "in review"` when ready for user review.
-12. Only close the issue after the user agrees it is complete.
-13. When closing, use `status_reason = "completed"`, `"won't do"`, `"duplicate"`, or another concise explanation.
-14. Commit the issue state changes together with the code changes they describe.
+8. If the plan splits into smaller issues, create child issues and link them with `gitrack link <parent> <child> --child --json`.
+9. If the split issues have ordering constraints, link them with `gitrack link <issue> <blocker> --blocked-by --json`.
+10. Once the user agrees, set `status_reason = "plan agreed"`.
+11. Implement against the agreed plan.
+12. Before handing work over for review, compare the result against the issue body and agreed plan.
+13. Set `status_reason = "in review"` when ready for user review.
+14. Only close the issue after the user agrees it is complete.
+15. When closing, use `status_reason = "completed"`, `"won't do"`, `"duplicate"`, or another concise explanation.
+16. Commit the issue state changes together with the code changes they describe.

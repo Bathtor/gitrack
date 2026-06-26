@@ -31,8 +31,9 @@ blocks = [
     "019f048b-9c24-78e1-bdbe-6375bbeec120",
     "019f048b-d322-7fe3-996d-ef0d890df4ad",
 ]
+parent = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
 created_at = "2026-06-26T15:27:44.397927Z"
-updated_at = "2026-06-26T15:47:55.992406Z"
+updated_at = "2026-06-26T16:26:58.263095Z"
 closed_at = "2026-06-26T15:47:55.992406Z"
 
 [[comments]]

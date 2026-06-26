@@ -335,6 +335,86 @@ fn json_views_expose_relationships_without_changing_readiness() {
 }
 
 #[test]
+fn human_show_displays_relationship_sections() {
+    let (_temp, workdir) = initialised_workdir();
+    run_json(
+        &workdir,
+        &["--json", "create", "Parent", "--ref", "project-parent"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Child", "--ref", "project-child"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Prereq", "--ref", "project-prereq"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Blocked", "--ref", "project-blocked"],
+    );
+    run_json(
+        &workdir,
+        &["--json", "create", "Related", "--ref", "project-related"],
+    );
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-parent",
+            "project-child",
+            "--child",
+        ],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-blocked",
+            "project-prereq",
+            "--blocked-by",
+        ],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-parent",
+            "project-related",
+            "--label",
+            "relates to",
+        ],
+    );
+
+    let parent = run_success(&workdir, &["show", "project-parent"]);
+    let parent_stdout = String::from_utf8_lossy(&parent.stdout);
+    assert!(parent_stdout.contains("\nCHILDREN\n"));
+    assert!(parent_stdout.contains("project-child: Child"));
+    assert!(parent_stdout.contains("\nLINKS\n"));
+    assert!(parent_stdout.contains("relates to:"));
+    assert!(parent_stdout.contains("project-related: Related"));
+
+    let child = run_success(&workdir, &["show", "project-child"]);
+    let child_stdout = String::from_utf8_lossy(&child.stdout);
+    assert!(child_stdout.contains("Parent: project-parent"));
+    assert!(!child_stdout.contains("\nPARENT\n"));
+
+    let prerequisite = run_success(&workdir, &["show", "project-prereq"]);
+    let prerequisite_stdout = String::from_utf8_lossy(&prerequisite.stdout);
+    assert!(prerequisite_stdout.contains("\nBLOCKS\n"));
+    assert!(prerequisite_stdout.contains("project-blocked: Blocked"));
+
+    let blocked = run_success(&workdir, &["show", "project-blocked"]);
+    let blocked_stdout = String::from_utf8_lossy(&blocked.stdout);
+    assert!(blocked_stdout.contains("\nBLOCKERS\n"));
+    assert!(blocked_stdout.contains("project-prereq: Prereq"));
+}
+
+#[test]
 fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
