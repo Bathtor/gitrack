@@ -14,7 +14,8 @@ S5. Tests: cover init/create alias creation, ref rename cleanup, duplicate/stale
 Total estimate: roughly 390-680 LOC, below 1000 LOC.
 
 Non-goal: the closed hook task gitrack-1y4 is not the primary merge-time duplicate-ref mechanism. A future validate command can still be useful as a secondary check."""
-status = "open"
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 3
 labels = [
@@ -24,4 +25,5 @@ labels = [
 ]
 assignee = "lkroll"
 created_at = "2026-06-25T11:42:47.779723Z"
-updated_at = "2026-06-26T07:40:11.761665Z"
+updated_at = "2026-06-26T07:42:40.733967Z"
+closed_at = "2026-06-26T07:42:40.733967Z"

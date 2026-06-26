@@ -1,6 +1,7 @@
 //! Persisted issue and configuration model.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
@@ -14,12 +15,9 @@ pub(crate) struct Config {
     pub(crate) version: u32,
     pub(crate) ref_prefix: String,
     pub(crate) issue_dir: String,
-    pub(crate) default_status: String,
     #[serde(rename = "default_type")]
     pub(crate) default_issue_type: String,
     pub(crate) default_priority: u8,
-    pub(crate) closed_status: String,
-    pub(crate) resolved_statuses: Vec<String>,
 }
 
 impl Config {
@@ -28,18 +26,49 @@ impl Config {
             version: STORE_VERSION,
             ref_prefix,
             issue_dir,
-            default_status: "open".to_string(),
             default_issue_type: "task".to_string(),
             default_priority: 3,
-            closed_status: "closed".to_string(),
-            resolved_statuses: vec!["closed".to_string(), "resolved".to_string()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum IssueStatus {
+    /// Work is available unless blocked or claimed.
+    Open,
+    /// Work has been claimed and is actively being handled.
+    InProgress,
+    /// Work is resolved and excluded from ready work.
+    Closed,
+}
+
+impl IssueStatus {
+    pub(crate) fn from_name(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "in-progress" => Some(Self::InProgress),
+            "closed" => Some(Self::Closed),
+            _ => None,
         }
     }
 
-    pub(crate) fn status_is_resolved(&self, status: &str) -> bool {
-        self.resolved_statuses
-            .iter()
-            .any(|resolved| resolved == status)
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::InProgress => "in-progress",
+            Self::Closed => "closed",
+        }
+    }
+
+    pub(crate) fn is_resolved(self) -> bool {
+        self == Self::Closed
+    }
+}
+
+impl fmt::Display for IssueStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 
@@ -51,7 +80,10 @@ pub(crate) struct Issue {
     pub(crate) title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(crate) body: String,
-    pub(crate) status: String,
+    pub(crate) status: IssueStatus,
+    /// Free-form explanation for the fixed status, such as `completed` or `won't do`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) status_reason: Option<String>,
     #[serde(rename = "type")]
     pub(crate) kind: String,
     pub(crate) priority: u8,
@@ -91,6 +123,7 @@ impl Issue {
             title,
             body,
             status,
+            status_reason: None,
             kind,
             priority,
             labels,
@@ -119,7 +152,7 @@ pub(crate) struct NewIssue {
     pub(crate) reference: String,
     pub(crate) title: String,
     pub(crate) body: String,
-    pub(crate) status: String,
+    pub(crate) status: IssueStatus,
     pub(crate) kind: String,
     pub(crate) priority: u8,
     pub(crate) labels: Vec<String>,

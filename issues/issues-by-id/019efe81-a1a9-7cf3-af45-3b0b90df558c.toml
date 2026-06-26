@@ -3,6 +3,7 @@ ref = "gitrack-1y4"
 title = "Add git hook for merge-time issue ref validation"
 body = "Installable hook support should reject duplicate issue refs and other store invariant violations during merge/rebase workflows, so conflicts are resolved before agents consume the issue store."
 status = "closed"
+status_reason = "won't do"
 type = "task"
 priority = 3
 labels = [

@@ -760,7 +760,7 @@ mod tests {
     use super::*;
     use crate::{
         error::Error,
-        model::{NewIssue, now_rfc3339},
+        model::{IssueStatus, NewIssue, now_rfc3339},
     };
     use std::fs;
 
@@ -1018,7 +1018,7 @@ mod tests {
             reference: reference.to_string(),
             title: format!("Issue {reference}"),
             body: String::new(),
-            status: "open".to_string(),
+            status: IssueStatus::Open,
             kind: "task".to_string(),
             priority: 3,
             labels: Vec::new(),

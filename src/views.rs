@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{Result, SerialiseJsonSnafu, WriteStdoutSnafu},
-    model::{Comment, Config, Issue},
+    model::{Comment, Config, Issue, IssueStatus},
     readiness::{issue_is_ready, issue_map},
     store::Store,
 };
@@ -39,10 +39,13 @@ pub(crate) fn print_issue_summary(issue: &Issue) {
     );
 }
 
-pub(crate) fn print_issue_detail(config: &Config, issues: &[Issue], issue: &Issue) -> Result<()> {
+pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Issue) -> Result<()> {
     println!("{} ({})", issue.reference, issue.id);
     println!("title: {}", issue.title);
     println!("status: {}", issue.status);
+    if let Some(status_reason) = &issue.status_reason {
+        println!("status_reason: {status_reason}");
+    }
     println!("type: {}", issue.kind);
     println!("priority: {}", issue.priority);
     println!(
@@ -65,10 +68,8 @@ pub(crate) fn print_issue_detail(config: &Config, issues: &[Issue], issue: &Issu
     if let Some(closed_at) = &issue.closed_at {
         println!("closed_at: {closed_at}");
     }
-    println!(
-        "ready: {}",
-        issue_is_ready(config, issue, &issue_map(issues))?
-    );
+    let ready = issue_is_ready(issue, &issue_map(issues))?;
+    println!("ready: {ready}");
     if !issue.body.is_empty() {
         println!();
         println!("{}", issue.body);
@@ -169,7 +170,8 @@ struct IssueView {
     reference: String,
     title: String,
     body: String,
-    status: String,
+    status: IssueStatus,
+    status_reason: Option<String>,
     #[serde(rename = "type")]
     kind: String,
     priority: u8,
@@ -184,14 +186,15 @@ struct IssueView {
 }
 
 impl IssueView {
-    fn from_issue(config: &Config, issues: &[Issue], issue: &Issue) -> Result<Self> {
+    fn from_issue(_config: &Config, issues: &[Issue], issue: &Issue) -> Result<Self> {
         let by_id = issue_map(issues);
         Ok(Self {
             id: issue.id,
             reference: issue.reference.clone(),
             title: issue.title.clone(),
             body: issue.body.clone(),
-            status: issue.status.clone(),
+            status: issue.status,
+            status_reason: issue.status_reason.clone(),
             kind: issue.kind.clone(),
             priority: issue.priority,
             labels: issue.labels.clone(),
@@ -201,7 +204,7 @@ impl IssueView {
                 .iter()
                 .map(|id| DependencyView::from_id(issues, *id))
                 .collect(),
-            ready: issue_is_ready(config, issue, &by_id)?,
+            ready: issue_is_ready(issue, &by_id)?,
             created_at: issue.created_at.clone(),
             updated_at: issue.updated_at.clone(),
             closed_at: issue.closed_at.clone(),

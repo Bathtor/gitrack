@@ -7,8 +7,8 @@ use snafu::ensure;
 use uuid::Uuid;
 
 use crate::{
-    error::{Result, SelfDependencySnafu},
-    model::{Comment, Issue, NewIssue, now_rfc3339},
+    error::{InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
+    model::{Comment, Issue, IssueStatus, NewIssue, now_rfc3339},
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
@@ -18,7 +18,12 @@ use crate::{
 };
 
 #[derive(Debug, Parser)]
-#[command(version, about = "A small Git-native issue tracker")]
+#[command(
+    version,
+    about = "A small Git-native issue tracker",
+    long_about = "gitrack stores issue state as ordinary tracked files in the current Git working tree. Use --json for deterministic output suitable for coding agents.",
+    after_help = "Examples:\n  gitrack init\n  gitrack --json create \"Fix parser\" --blocked-by gitrack-abc\n  gitrack ready\n  gitrack claim gitrack-abc --assignee agent\n  gitrack close gitrack-abc --reason completed\n  gitrack export json --pretty"
+)]
 pub struct Cli {
     #[arg(long, global = true, help = "Emit deterministic JSON where supported")]
     pub(crate) json: bool,
@@ -29,20 +34,58 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    #[command(
+        about = "Initialise issue tracking files in this Git working tree",
+        after_help = "Creates .gitrack/config.toml and the configured issue directory. The default issue directory is ./issues."
+    )]
     Init(InitArgs),
+    #[command(
+        about = "Create a new issue",
+        after_help = "Refs are generated automatically unless --ref is provided. Use explicit refs mainly for child issues such as parent.1."
+    )]
     Create(CreateArgs),
+    #[command(
+        about = "List issues",
+        after_help = "By default resolved issues are hidden. Use --all to include closed issues."
+    )]
     List(ListArgs),
+    #[command(
+        about = "List work that is open, unclaimed, and unblocked",
+        after_help = "Ready work excludes claimed work and work blocked by issues that are not closed."
+    )]
     Ready(ReadyArgs),
+    #[command(about = "Show one issue by ref or UUID")]
     Show(ShowArgs),
+    #[command(
+        about = "Update editable issue fields",
+        after_help = "Status values are fixed: open, in-progress, closed. Use close/reopen/claim for common workflow transitions."
+    )]
     Update(UpdateArgs),
+    #[command(
+        about = "Rename or regenerate an issue ref",
+        after_help = "Omit NEW_REF to generate a fresh automatic ref. Dependencies use UUIDs internally, so ref renames do not rewrite other issue files."
+    )]
     Ref(RefArgs),
+    #[command(
+        about = "Assign an issue and move it to in-progress",
+        after_help = "Claiming a closed issue is rejected. Reopen it first if the work should continue."
+    )]
     Claim(ClaimArgs),
+    #[command(about = "Add one or more blocking dependencies to an issue")]
     Block(BlockArgs),
+    #[command(about = "Add one blocking dependency to an issue")]
     Link(LinkArgs),
+    #[command(
+        about = "Close an issue",
+        after_help = "The optional reason is stored as status_reason and also recorded as a comment."
+    )]
     Close(CloseArgs),
+    #[command(about = "Reopen a closed issue")]
     Reopen(ReopenArgs),
     #[command(alias = "note")]
+    #[command(about = "Append a comment to an issue")]
     Comment(CommentArgs),
+    #[command(about = "Export issue data")]
     Export(ExportArgs),
 }
 
@@ -64,6 +107,7 @@ pub(crate) struct InitArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct CreateArgs {
+    #[arg(help = "Issue title")]
     title: String,
 
     #[arg(long, default_value = "", help = "Issue body or description")]
@@ -96,7 +140,7 @@ pub(crate) struct ListArgs {
     #[arg(long, help = "Include resolved issues")]
     all: bool,
 
-    #[arg(long, help = "Filter by exact status")]
+    #[arg(long, help = "Filter by status: open, in-progress, or closed")]
     status: Option<String>,
 }
 
@@ -105,26 +149,34 @@ pub(crate) struct ReadyArgs {}
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct ShowArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct UpdateArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 
-    #[arg(long)]
+    #[arg(long, help = "Replace the issue title")]
     title: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Replace the issue body")]
     body: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Set status: open, in-progress, or closed")]
     status: Option<String>,
 
-    #[arg(long = "type")]
+    #[arg(long, help = "Set a free-form explanation for the current status")]
+    status_reason: Option<String>,
+
+    #[arg(long, help = "Clear any status explanation")]
+    clear_status_reason: bool,
+
+    #[arg(long = "type", help = "Replace the issue type")]
     issue_type: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Replace the issue priority")]
     priority: Option<u8>,
 
     #[arg(
@@ -136,10 +188,10 @@ pub(crate) struct UpdateArgs {
     #[arg(long, help = "Clear all labels before applying any --label values")]
     clear_labels: bool,
 
-    #[arg(long)]
+    #[arg(long, help = "Set the issue assignee")]
     assignee: Option<String>,
 
-    #[arg(long)]
+    #[arg(long, help = "Clear the issue assignee")]
     clear_assignee: bool,
 
     #[arg(long = "ref", help = "Rename the user-visible ref")]
@@ -148,14 +200,19 @@ pub(crate) struct UpdateArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct RefArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 
-    #[arg(help = "Explicit new ref; omit to generate a fresh automatic ref")]
+    #[arg(
+        value_name = "NEW_REF",
+        help = "Explicit new ref; omit to generate a fresh automatic ref"
+    )]
     reference: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct ClaimArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 
     #[arg(long, help = "Assignee; defaults to GITRACK_ACTOR or USER")]
@@ -164,6 +221,7 @@ pub(crate) struct ClaimArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct BlockArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 
     #[arg(
@@ -176,26 +234,35 @@ pub(crate) struct BlockArgs {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct LinkArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
+    #[arg(help = "Blocking issue ref or UUID")]
     blocker: String,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct CloseArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 
-    #[arg(long, help = "Optional close reason recorded as a comment")]
+    #[arg(
+        long,
+        help = "Optional close reason, for example completed or won't do"
+    )]
     reason: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct ReopenArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
 }
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct CommentArgs {
+    #[arg(help = "Issue ref or UUID")]
     issue: String,
+    #[arg(help = "Comment body")]
     body: String,
 
     #[arg(long, help = "Comment author; defaults to GITRACK_ACTOR or USER")]
@@ -210,6 +277,7 @@ pub(crate) struct ExportArgs {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ExportFormat {
+    #[command(about = "Export all issues as deterministic JSON")]
     Json(JsonExportArgs),
 }
 
@@ -282,7 +350,7 @@ fn create(args: CreateArgs, json: bool) -> Result<()> {
         reference,
         title: args.title,
         body: args.body,
-        status: store.config.default_status.clone(),
+        status: IssueStatus::Open,
         kind: issue_type,
         priority,
         labels: normalise_labels(args.labels),
@@ -300,13 +368,19 @@ fn create(args: CreateArgs, json: bool) -> Result<()> {
 fn list(args: &ListArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
     let issues = store.load_issues()?;
+    let status_filter = if let Some(status) = &args.status {
+        let status = parse_status(status)?;
+        Some(status)
+    } else {
+        None
+    };
     let filtered = issues
         .iter()
         .filter(|issue| {
-            if let Some(status) = &args.status {
-                &issue.status == status
+            if let Some(status) = status_filter {
+                issue.status == status
             } else {
-                args.all || !store.config.status_is_resolved(&issue.status)
+                args.all || !issue.status.is_resolved()
             }
         })
         .collect::<Vec<_>>();
@@ -328,7 +402,7 @@ fn ready(_args: ReadyArgs, json: bool) -> Result<()> {
     let by_id = issue_map(&issues);
     let mut ready = Vec::new();
     for issue in &issues {
-        if issue_is_ready(&store.config, issue, &by_id)? {
+        if issue_is_ready(issue, &by_id)? {
             ready.push(issue);
         }
     }
@@ -373,13 +447,21 @@ fn update(args: UpdateArgs, json: bool) -> Result<()> {
         issue.body = body;
     }
     if let Some(status) = args.status {
-        if store.config.status_is_resolved(&status) && issue.closed_at.is_none() {
+        let status = parse_status(&status)?;
+        if status.is_resolved() && issue.closed_at.is_none() {
             let now = now_rfc3339()?;
             issue.closed_at = Some(now);
-        } else if !store.config.status_is_resolved(&status) {
+        } else if !status.is_resolved() {
             issue.closed_at = None;
+            issue.status_reason = None;
         }
         issue.status = status;
+    }
+    if let Some(status_reason) = args.status_reason {
+        issue.status_reason = normalise_optional(Some(status_reason));
+    }
+    if args.clear_status_reason {
+        issue.status_reason = None;
     }
     if let Some(issue_type) = args.issue_type {
         issue.kind = issue_type;
@@ -433,7 +515,16 @@ fn claim(args: ClaimArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
     let mut issues = store.load_issues()?;
     let issue = Store::resolve_issue_mut(&mut issues, &args.issue)?;
+    ensure!(
+        !issue.status.is_resolved(),
+        ResolvedIssueSnafu {
+            reference: issue.reference.clone(),
+            status: issue.status.to_string()
+        }
+    );
     issue.assignee = Some(args.assignee.unwrap_or_else(default_actor));
+    issue.status = IssueStatus::InProgress;
+    issue.status_reason = None;
     let now = now_rfc3339()?;
     issue.touch(now);
     let updated = issue.clone();
@@ -454,11 +545,13 @@ fn close(args: CloseArgs, json: bool) -> Result<()> {
     let mut issues = store.load_issues()?;
     let issue = Store::resolve_issue_mut(&mut issues, &args.issue)?;
     let now = now_rfc3339()?;
-    issue.status.clone_from(&store.config.closed_status);
+    issue.status = IssueStatus::Closed;
     issue.closed_at = Some(now.clone());
     issue.touch(now.clone());
 
-    if let Some(reason) = normalise_optional(args.reason) {
+    let reason = normalise_optional(args.reason);
+    issue.status_reason.clone_from(&reason);
+    if let Some(reason) = reason {
         issue
             .comments
             .push(Comment::new(default_actor(), reason, now));
@@ -473,8 +566,9 @@ fn reopen(args: &ReopenArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
     let mut issues = store.load_issues()?;
     let issue = Store::resolve_issue_mut(&mut issues, &args.issue)?;
-    issue.status.clone_from(&store.config.default_status);
+    issue.status = IssueStatus::Open;
     issue.closed_at = None;
+    issue.status_reason = None;
     let now = now_rfc3339()?;
     issue.touch(now);
     let updated = issue.clone();
@@ -543,6 +637,17 @@ fn resolve_many(issues: &[Issue], identifiers: Vec<String>) -> Result<Vec<Uuid>>
     Ok(ids)
 }
 
+fn parse_status(value: &str) -> Result<IssueStatus> {
+    let Some(status) = IssueStatus::from_name(value) else {
+        return InvalidStatusSnafu {
+            status: value.to_string(),
+        }
+        .fail();
+    };
+
+    Ok(status)
+}
+
 fn default_actor() -> String {
     env::var("GITRACK_ACTOR")
         .or_else(|_| env::var("USER"))
@@ -552,64 +657,60 @@ fn default_actor() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{error::Error, model::Config};
+    use crate::error::Error;
 
     #[test]
     fn open_unclaimed_issue_with_closed_blocker_is_ready() {
-        let config = Config::new("gitrack".to_string(), "issues".to_string());
-        let mut blocker = test_issue("gitrack-blocker", "closed");
+        let mut blocker = test_issue("gitrack-blocker", IssueStatus::Closed);
         blocker.closed_at = Some("2026-06-25T10:00:00Z".to_string());
-        let mut issue = test_issue("gitrack-work", "open");
+        let mut issue = test_issue("gitrack-work", IssueStatus::Open);
         issue.blocked_by.push(blocker.id);
         let issues = vec![blocker, issue.clone()];
         let by_id = issue_map(&issues);
 
-        assert!(issue_is_ready(&config, &issue, &by_id).expect("readiness"));
+        assert!(issue_is_ready(&issue, &by_id).expect("readiness"));
     }
 
     #[test]
     fn open_issue_with_open_blocker_is_not_ready() {
-        let config = Config::new("gitrack".to_string(), "issues".to_string());
-        let blocker = test_issue("gitrack-blocker", "open");
-        let mut issue = test_issue("gitrack-work", "open");
+        let blocker = test_issue("gitrack-blocker", IssueStatus::Open);
+        let mut issue = test_issue("gitrack-work", IssueStatus::Open);
         issue.blocked_by.push(blocker.id);
         let issues = vec![blocker, issue.clone()];
         let by_id = issue_map(&issues);
 
-        assert!(!issue_is_ready(&config, &issue, &by_id).expect("readiness"));
+        assert!(!issue_is_ready(&issue, &by_id).expect("readiness"));
     }
 
     #[test]
     fn claimed_issue_is_not_ready() {
-        let config = Config::new("gitrack".to_string(), "issues".to_string());
-        let mut issue = test_issue("gitrack-work", "open");
+        let mut issue = test_issue("gitrack-work", IssueStatus::Open);
         issue.assignee = Some("agent".to_string());
         let issues = vec![issue.clone()];
         let by_id = issue_map(&issues);
 
-        assert!(!issue_is_ready(&config, &issue, &by_id).expect("readiness"));
+        assert!(!issue_is_ready(&issue, &by_id).expect("readiness"));
     }
 
     #[test]
     fn issue_with_missing_blocker_returns_structured_error() {
-        let config = Config::new("gitrack".to_string(), "issues".to_string());
-        let mut issue = test_issue("gitrack-work", "open");
+        let mut issue = test_issue("gitrack-work", IssueStatus::Open);
         issue.blocked_by.push(Uuid::now_v7());
         let issues = vec![issue.clone()];
         let by_id = issue_map(&issues);
 
-        let error = issue_is_ready(&config, &issue, &by_id).expect_err("missing blocker");
+        let error = issue_is_ready(&issue, &by_id).expect_err("missing blocker");
 
         assert!(matches!(error, Error::MissingDependency { .. }));
     }
 
-    fn test_issue(reference: &str, status: &str) -> Issue {
+    fn test_issue(reference: &str, status: IssueStatus) -> Issue {
         Issue::new(NewIssue {
             id: Uuid::now_v7(),
             reference: reference.to_string(),
             title: format!("Issue {reference}"),
             body: String::new(),
-            status: status.to_string(),
+            status,
             kind: "task".to_string(),
             priority: 3,
             labels: Vec::new(),

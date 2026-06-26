@@ -179,4 +179,12 @@ pub enum Error {
 
     #[snafu(display("issue `{issue}` depends on missing blocker UUID {blocker}"))]
     MissingDependency { issue: String, blocker: uuid::Uuid },
+
+    #[snafu(display("invalid status `{status}`; expected one of: open, in-progress, closed"))]
+    InvalidStatus { status: String },
+
+    #[snafu(display(
+        "issue `{reference}` has resolved status `{status}`; reopen it before claiming"
+    ))]
+    ResolvedIssue { reference: String, status: String },
 }

@@ -1,11 +1,5 @@
 version = 1
 ref_prefix = "gitrack"
 issue_dir = "issues"
-default_status = "open"
 default_type = "task"
 default_priority = 3
-closed_status = "closed"
-resolved_statuses = [
-    "closed",
-    "resolved",
-]

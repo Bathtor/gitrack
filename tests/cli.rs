@@ -89,6 +89,56 @@ fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
     );
 }
 
+#[test]
+fn claim_sets_in_progress_and_rejects_closed_issues() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--json"]);
+
+    let created_issue = run_json(&workdir, &["--json", "create", "Implement workflow"]);
+    let issue_ref = issue_ref(&created_issue);
+    let claimed_issue = run_json(
+        &workdir,
+        &["--json", "claim", &issue_ref, "--assignee", "agent"],
+    );
+    assert_eq!(claimed_issue["status"], "in-progress");
+    assert_eq!(claimed_issue["assignee"], "agent");
+
+    let closed_issue = run_json(
+        &workdir,
+        &["--json", "close", &issue_ref, "--reason", "completed"],
+    );
+    assert_eq!(closed_issue["status"], "closed");
+    assert_eq!(closed_issue["status_reason"], "completed");
+
+    let failed_claim = run_failure(
+        &workdir,
+        &["--json", "claim", &issue_ref, "--assignee", "agent"],
+    );
+    let stderr = String::from_utf8_lossy(&failed_claim.stderr);
+    assert!(stderr.contains("reopen it before claiming"));
+}
+
+#[test]
+fn help_text_describes_common_agent_workflows() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+
+    let root_help = run_success(&workdir, &["--help"]);
+    let root_stdout = String::from_utf8_lossy(&root_help.stdout);
+    assert!(root_stdout.contains("deterministic output suitable for coding agents"));
+    assert!(root_stdout.contains("gitrack ready"));
+
+    let claim_help = run_success(&workdir, &["claim", "--help"]);
+    let claim_stdout = String::from_utf8_lossy(&claim_help.stdout);
+    assert!(claim_stdout.contains("move it to in-progress"));
+    assert!(claim_stdout.contains("Reopen it first"));
+}
+
 fn run_json(workdir: &Path, args: &[&str]) -> Value {
     let output = run_success(workdir, args);
     serde_json::from_slice(&output.stdout).expect("parse JSON output")

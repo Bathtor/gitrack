@@ -1,0 +1,10 @@
+id = "019f02e4-13f5-7dc1-b59a-c0ed1663cfee"
+ref = "gitrack-xny"
+title = "Add README and user guide"
+body = "Document installation, storage layout, common command examples, JSON mode, ready semantics, ref aliases, and agent-friendly workflows in a README or equivalent user guide."
+status = "open"
+type = "task"
+priority = 3
+labels = ["docs"]
+created_at = "2026-06-26T07:45:29.589426Z"
+updated_at = "2026-06-26T07:45:29.589426Z"

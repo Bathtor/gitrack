@@ -6,15 +6,11 @@ use uuid::Uuid;
 
 use crate::{
     error::{MissingDependencySnafu, Result},
-    model::{Config, Issue},
+    model::{Issue, IssueStatus},
 };
 
-pub(crate) fn issue_is_ready(
-    config: &Config,
-    issue: &Issue,
-    by_id: &HashMap<Uuid, &Issue>,
-) -> Result<bool> {
-    if config.status_is_resolved(&issue.status) || issue.is_claimed() {
+pub(crate) fn issue_is_ready(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Result<bool> {
+    if issue.status != IssueStatus::Open || issue.is_claimed() {
         return Ok(false);
     }
 
@@ -26,7 +22,7 @@ pub(crate) fn issue_is_ready(
             }
             .build()
         })?;
-        if !config.status_is_resolved(&blocker.status) {
+        if !blocker.status.is_resolved() {
             return Ok(false);
         }
     }
