@@ -211,16 +211,17 @@ Common project-specific reasons include `planning`, `plan agreed`, `in review`,
 TL;DR:
 
 ```bash
-gitrack block gitrack-abc --by gitrack-def # Add gitrack-def as a blocker.
+gitrack link gitrack-abc gitrack-def --blocked-by # Add gitrack-def as a blocker.
+gitrack unlink gitrack-abc gitrack-def --blocked-by # Remove that blocker.
 gitrack ready # Recompute ready work after dependency changes.
 ```
 
 Use blockers when one issue cannot proceed until another issue is closed. The
-`block` command is explicit about direction: `--by` names the issue that blocks
-the target issue. `link` is a shorter equivalent for adding one blocker:
+`--blocked-by` selector is explicit about direction: the target issue blocks
+the source issue.
 
 ```bash
-gitrack link gitrack-abc gitrack-def # Add gitrack-def as a blocker.
+gitrack link gitrack-abc gitrack-def --blocked-by # Make gitrack-def block gitrack-abc.
 ```
 
 ### Close Or Reopen Work

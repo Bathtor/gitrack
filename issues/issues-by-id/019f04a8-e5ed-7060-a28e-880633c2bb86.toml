@@ -1,0 +1,9 @@
+id = "019f04a8-e5ed-7060-a28e-880633c2bb86"
+ref = "gitrack-gom"
+title = "Check licenses on CI"
+body = "We should also run the license deny check on CI, so it doesn't get missed on PRs later"
+status = "open"
+type = "task"
+priority = 3
+created_at = "2026-06-26T16:00:05.613505Z"
+updated_at = "2026-06-26T16:00:05.613505Z"

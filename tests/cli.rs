@@ -55,6 +55,183 @@ fn cli_tracks_blocked_and_ready_work() {
 }
 
 #[test]
+fn link_and_unlink_manage_hierarchy() {
+    let (_temp, workdir) = initialised_workdir();
+    let parent = run_json(
+        &workdir,
+        &["--json", "create", "Parent", "--ref", "project-parent"],
+    );
+    let child = run_json(
+        &workdir,
+        &["--json", "create", "Child", "--ref", "project-child"],
+    );
+    let parent_id = issue_id(&parent);
+    let child_id = issue_id(&child);
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-parent",
+            "project-child",
+            "--child",
+        ],
+    );
+    assert_eq!(
+        uuid_array_field(&issue_document(&workdir, &parent_id), "children"),
+        vec![child_id.clone()]
+    );
+    assert_eq!(
+        optional_uuid_field(&issue_document(&workdir, &child_id), "parent"),
+        Some(parent_id.clone())
+    );
+
+    run_failure(
+        &workdir,
+        &["link", "project-child", "project-parent", "--child"],
+    );
+    run_success(&workdir, &["list"]);
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "unlink",
+            "project-parent",
+            "project-child",
+            "--child",
+        ],
+    );
+    assert!(uuid_array_field(&issue_document(&workdir, &parent_id), "children").is_empty());
+    assert_eq!(
+        optional_uuid_field(&issue_document(&workdir, &child_id), "parent"),
+        None
+    );
+}
+
+#[test]
+fn link_and_unlink_manage_blockers() {
+    let (_temp, workdir) = initialised_workdir();
+    let prerequisite = run_json(
+        &workdir,
+        &[
+            "--json",
+            "create",
+            "Prerequisite",
+            "--ref",
+            "project-prereq",
+        ],
+    );
+    let work_item = run_json(
+        &workdir,
+        &["--json", "create", "Work item", "--ref", "project-work"],
+    );
+    let prerequisite_id = issue_id(&prerequisite);
+    let work_item_id = issue_id(&work_item);
+
+    let linked = run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-work",
+            "project-prereq",
+            "--blocked-by",
+        ],
+    );
+    assert_eq!(linked["blocked_by"][0]["id"], prerequisite_id);
+    assert_eq!(
+        uuid_array_field(&issue_document(&workdir, &prerequisite_id), "blocks"),
+        vec![work_item_id]
+    );
+
+    let unlinked = run_json(
+        &workdir,
+        &[
+            "--json",
+            "unlink",
+            "project-work",
+            "project-prereq",
+            "--blocked-by",
+        ],
+    );
+    assert_eq!(
+        unlinked["blocked_by"]
+            .as_array()
+            .expect("blocked_by array")
+            .len(),
+        0
+    );
+    assert!(uuid_array_field(&issue_document(&workdir, &prerequisite_id), "blocks").is_empty());
+
+    run_failure(
+        &workdir,
+        &["block", "project-work", "--by", "project-prereq"],
+    );
+}
+
+#[test]
+fn link_and_unlink_manage_labelled_links() {
+    let (_temp, workdir) = initialised_workdir();
+    let source = run_json(
+        &workdir,
+        &["--json", "create", "Source", "--ref", "project-source"],
+    );
+    let target = run_json(
+        &workdir,
+        &["--json", "create", "Target", "--ref", "project-target"],
+    );
+    let source_id = issue_id(&source);
+    let target_id = issue_id(&target);
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "link",
+            "project-source",
+            "project-target",
+            "--label",
+            "discovered from",
+            "--bidirectional",
+        ],
+    );
+    assert_eq!(
+        link_entries(&issue_document(&workdir, &source_id)),
+        vec![(target_id.clone(), "discovered from".to_string())]
+    );
+    assert_eq!(
+        link_entries(&issue_document(&workdir, &target_id)),
+        vec![(source_id.clone(), "discovered from".to_string())]
+    );
+
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "unlink",
+            "project-source",
+            "project-target",
+            "--label",
+            "discovered from",
+            "--bidirectional",
+        ],
+    );
+    assert!(link_entries(&issue_document(&workdir, &source_id)).is_empty());
+    assert!(link_entries(&issue_document(&workdir, &target_id)).is_empty());
+
+    run_json(
+        &workdir,
+        &["--json", "link", "project-source", "project-target"],
+    );
+    assert_eq!(
+        link_entries(&issue_document(&workdir, &source_id)),
+        vec![(target_id.clone(), "relates to".to_string())]
+    );
+}
+
+#[test]
 fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -319,11 +496,18 @@ fn help_text_describes_common_agent_workflows() {
     assert!(root_stdout.contains("deterministic output suitable for coding agents"));
     assert!(root_stdout.contains("gitrack ready"));
     assert!(!root_stdout.contains("\n  help     "));
+    assert!(!root_stdout.contains("\n  block"));
 
     let claim_help = run_success(&workdir, &["claim", "--help"]);
     let claim_stdout = String::from_utf8_lossy(&claim_help.stdout);
     assert!(claim_stdout.contains("move it to in-progress"));
     assert!(claim_stdout.contains("Reopen it first"));
+
+    let link_help = run_success(&workdir, &["link", "--help"]);
+    let link_stdout = String::from_utf8_lossy(&link_help.stdout);
+    assert!(link_stdout.contains("--child"));
+    assert!(link_stdout.contains("--blocked-by"));
+    assert!(link_stdout.contains("--bidirectional"));
 
     let agents_help = run_success(&workdir, &["agents", "--help"]);
     let agents_stdout = String::from_utf8_lossy(&agents_help.stdout);
@@ -407,6 +591,15 @@ fn agents_update_rejects_malformed_managed_markers() {
 fn run_json(workdir: &Path, args: &[&str]) -> Value {
     let output = run_success(workdir, args);
     serde_json::from_slice(&output.stdout).expect("parse JSON output")
+}
+
+fn initialised_workdir() -> (tempfile::TempDir, PathBuf) {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--json"]);
+    (temp, workdir)
 }
 
 fn run_success(workdir: &Path, args: &[&str]) -> Output {
@@ -582,6 +775,47 @@ fn issue_file_path(workdir: &Path, issue_id: &str) -> std::path::PathBuf {
         .join("issues")
         .join("issues-by-id")
         .join(format!("{issue_id}.toml"))
+}
+
+fn issue_document(workdir: &Path, issue_id: &str) -> toml::Value {
+    let issue_path = issue_file_path(workdir, issue_id);
+    let content = fs::read_to_string(issue_path).expect("read issue file");
+    content.parse::<toml::Value>().expect("parse issue TOML")
+}
+
+fn uuid_array_field(document: &toml::Value, field: &str) -> Vec<String> {
+    document
+        .get(field)
+        .and_then(toml::Value::as_array)
+        .map_or_else(Vec::new, |values| {
+            values
+                .iter()
+                .map(|value| value.as_str().expect("uuid string").to_string())
+                .collect()
+        })
+}
+
+fn optional_uuid_field(document: &toml::Value, field: &str) -> Option<String> {
+    document
+        .get(field)
+        .and_then(toml::Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn link_entries(document: &toml::Value) -> Vec<(String, String)> {
+    document
+        .get("links")
+        .and_then(toml::Value::as_array)
+        .map_or_else(Vec::new, |links| {
+            links
+                .iter()
+                .map(|link| {
+                    let target = link["target"].as_str().expect("link target").to_string();
+                    let label = link["label"].as_str().expect("link label").to_string();
+                    (target, label)
+                })
+                .collect()
+        })
 }
 
 fn assert_ref_alias_points_to(workdir: &Path, reference: &str, issue_id: &str) {

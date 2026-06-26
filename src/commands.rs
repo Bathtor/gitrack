@@ -8,8 +8,10 @@ use uuid::Uuid;
 
 use crate::{
     agents::update_agents_file,
-    error::{Error, InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
-    model::{Comment, Issue, IssueKind, IssueRef, IssueStatus, NewIssue, now_rfc3339},
+    error::{
+        Error, InvalidRelationshipCommandSnafu, InvalidStatusSnafu, ResolvedIssueSnafu, Result,
+    },
+    model::{Comment, Issue, IssueKind, IssueLink, IssueRef, IssueStatus, NewIssue, now_rfc3339},
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
@@ -17,6 +19,8 @@ use crate::{
         print_issue_summary, print_json,
     },
 };
+
+const DEFAULT_LINK_LABEL: &str = "relates to";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -73,10 +77,16 @@ pub(crate) enum Command {
         after_help = "Claiming a closed issue is rejected. Reopen it first if the work should continue."
     )]
     Claim(ClaimArgs),
-    #[command(about = "Add one or more blocking dependencies to an issue")]
-    Block(BlockArgs),
-    #[command(about = "Add one blocking dependency to an issue")]
+    #[command(
+        about = "Create a relationship between two issues",
+        after_help = "Defaults to a free-form `relates to` link. Use --child for hierarchy or --blocked-by for blocking dependencies."
+    )]
     Link(LinkArgs),
+    #[command(
+        about = "Remove a relationship between two issues",
+        after_help = "Uses the same selector flags as link. Defaults to removing a free-form `relates to` link."
+    )]
+    Unlink(UnlinkArgs),
     #[command(
         about = "Close an issue",
         after_help = "The optional reason is stored as status_reason and also recorded as a comment."
@@ -227,24 +237,45 @@ pub(crate) struct ClaimArgs {
 }
 
 #[derive(Debug, clap::Args)]
-pub(crate) struct BlockArgs {
-    #[arg(help = "Issue ref or UUID")]
-    issue: String,
+pub(crate) struct LinkArgs {
+    #[arg(help = "Source issue ref or UUID")]
+    source: String,
 
-    #[arg(
-        long = "by",
-        required = true,
-        help = "Issue ref or UUID that blocks this issue"
-    )]
-    blockers: Vec<String>,
+    #[arg(help = "Target issue ref or UUID")]
+    target: String,
+
+    #[arg(long, conflicts_with_all = ["blocked_by", "label"], help = "Make TARGET a child of SOURCE")]
+    child: bool,
+
+    #[arg(long = "blocked-by", conflicts_with_all = ["child", "label"], help = "Make SOURCE blocked by TARGET")]
+    blocked_by: bool,
+
+    #[arg(long, value_name = "LABEL", conflicts_with_all = ["child", "blocked_by"], help = "Free-form relationship label; defaults to `relates to`")]
+    label: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["child", "blocked_by"], help = "For free-form links, also add TARGET -> SOURCE")]
+    bidirectional: bool,
 }
 
 #[derive(Debug, clap::Args)]
-pub(crate) struct LinkArgs {
-    #[arg(help = "Issue ref or UUID")]
-    issue: String,
-    #[arg(help = "Blocking issue ref or UUID")]
-    blocker: String,
+pub(crate) struct UnlinkArgs {
+    #[arg(help = "Source issue ref or UUID")]
+    source: String,
+
+    #[arg(help = "Target issue ref or UUID")]
+    target: String,
+
+    #[arg(long, conflicts_with_all = ["blocked_by", "label"], help = "Remove TARGET as a child of SOURCE")]
+    child: bool,
+
+    #[arg(long = "blocked-by", conflicts_with_all = ["child", "label"], help = "Remove TARGET as a blocker of SOURCE")]
+    blocked_by: bool,
+
+    #[arg(long, value_name = "LABEL", conflicts_with_all = ["child", "blocked_by"], help = "Free-form relationship label; defaults to `relates to`")]
+    label: Option<String>,
+
+    #[arg(long, conflicts_with_all = ["child", "blocked_by"], help = "For free-form links, also remove TARGET -> SOURCE")]
+    bidirectional: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -335,8 +366,8 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Update(args) => update(args, cli.json),
         Command::Ref(args) => rename_ref(args, cli.json),
         Command::Claim(args) => claim(args, cli.json),
-        Command::Block(args) => block(args, cli.json),
         Command::Link(args) => link(args, cli.json),
+        Command::Unlink(args) => unlink(args, cli.json),
         Command::Close(args) => close(args, cli.json),
         Command::Reopen(args) => reopen(&args, cli.json),
         Command::Comment(args) => comment(args, cli.json),
@@ -634,12 +665,28 @@ fn claim(args: ClaimArgs, json: bool) -> Result<()> {
     emit_issue(&store.config, &issues, &updated, json)
 }
 
-fn block(args: BlockArgs, json: bool) -> Result<()> {
-    add_blockers(&args.issue, args.blockers, json)
+fn link(args: LinkArgs, json: bool) -> Result<()> {
+    let kind = relationship_kind_from_flags(args.child, args.blocked_by, args.label)?;
+    mutate_relationship(
+        RelationshipMutation::Add,
+        &args.source,
+        &args.target,
+        &kind,
+        args.bidirectional,
+        json,
+    )
 }
 
-fn link(args: LinkArgs, json: bool) -> Result<()> {
-    add_blockers(&args.issue, vec![args.blocker], json)
+fn unlink(args: UnlinkArgs, json: bool) -> Result<()> {
+    let kind = relationship_kind_from_flags(args.child, args.blocked_by, args.label)?;
+    mutate_relationship(
+        RelationshipMutation::Remove,
+        &args.source,
+        &args.target,
+        &kind,
+        args.bidirectional,
+        json,
+    )
 }
 
 fn close(args: CloseArgs, json: bool) -> Result<()> {
@@ -718,44 +765,348 @@ fn export(args: ExportArgs) -> Result<()> {
     print_json(&view, json_args.pretty)
 }
 
-fn add_blockers(issue_identifier: &str, blockers: Vec<String>, json: bool) -> Result<()> {
+fn mutate_relationship(
+    mutation: RelationshipMutation,
+    source_identifier: &str,
+    target_identifier: &str,
+    kind: &RelationshipKind,
+    bidirectional: bool,
+    json: bool,
+) -> Result<()> {
+    ensure!(
+        !bidirectional || matches!(kind, RelationshipKind::Label(_)),
+        InvalidRelationshipCommandSnafu {
+            reason: "--bidirectional only applies to free-form links".to_string()
+        }
+    );
+
     let store = Store::open(Path::new("."))?;
     let mut issues = store.load_issues()?;
-    let blocker_ids = resolve_many(&issues, blockers)?;
-    let issue = Store::resolve_issue(&issues, issue_identifier)?;
-    let issue_id = issue.id;
-    let issue_reference = issue.reference.to_string();
-
-    for blocker_id in &blocker_ids {
-        ensure!(
-            *blocker_id != issue_id,
-            SelfDependencySnafu {
-                issue: issue_reference.clone()
-            }
-        );
-    }
+    let source = Store::resolve_issue(&issues, source_identifier)?;
+    let source_id = source.id;
+    let source_reference = source.reference.to_string();
+    let target = Store::resolve_issue(&issues, target_identifier)?;
+    let target_id = target.id;
+    let target_reference = target.reference.to_string();
+    let endpoints = RelationshipEndpoints {
+        source_id,
+        source_reference: &source_reference,
+        target_id,
+        target_reference: &target_reference,
+    };
+    ensure!(
+        source_id != target_id,
+        InvalidRelationshipCommandSnafu {
+            reason: format!(
+                "source issue `{source_reference}` and target issue `{target_reference}` must be different"
+            )
+        }
+    );
 
     let now = now_rfc3339()?;
-    let mut modified_ids = Vec::new();
-    {
-        let issue = Store::resolve_issue_mut(&mut issues, issue_identifier)?;
-        for blocker_id in &blocker_ids {
-            push_unique_sorted(&mut issue.blocked_by, *blocker_id);
+    let modified_ids = match mutation {
+        RelationshipMutation::Add => {
+            add_relationship(&mut issues, &endpoints, kind, bidirectional, &now)?
         }
-        issue.touch(now.clone());
-        modified_ids.push(issue.id);
-    }
-    let modified_blockers =
-        add_blocked_issue_to_blockers(&mut issues, &blocker_ids, issue_id, &now);
-    modified_ids.extend(modified_blockers);
+        RelationshipMutation::Remove => {
+            remove_relationship(&mut issues, &endpoints, kind, bidirectional, &now)
+        }
+    };
 
     let updated = issues
         .iter()
-        .find(|issue| issue.id == issue_id)
+        .find(|issue| issue.id == endpoints.source_id)
         .expect("resolved issue id must remain present")
         .clone();
     save_issues_by_id(&store, &issues, &modified_ids)?;
     emit_issue(&store.config, &issues, &updated, json)
+}
+
+/// Parse relationship selector flags into one concrete relationship kind.
+fn relationship_kind_from_flags(
+    child: bool,
+    blocked_by: bool,
+    label: Option<String>,
+) -> Result<RelationshipKind> {
+    let selector_count =
+        usize::from(child) + usize::from(blocked_by) + usize::from(label.is_some());
+    ensure!(
+        selector_count <= 1,
+        InvalidRelationshipCommandSnafu {
+            reason: "--child, --blocked-by, and --label are mutually exclusive".to_string()
+        }
+    );
+
+    if child {
+        Ok(RelationshipKind::Child)
+    } else if blocked_by {
+        Ok(RelationshipKind::BlockedBy)
+    } else {
+        let label = label.unwrap_or_else(|| DEFAULT_LINK_LABEL.to_string());
+        let label = label.trim();
+        ensure!(
+            !label.is_empty(),
+            InvalidRelationshipCommandSnafu {
+                reason: "link label must not be empty".to_string()
+            }
+        );
+        Ok(RelationshipKind::Label(label.to_string()))
+    }
+}
+
+/// Add one relationship and return the IDs of issues changed by the operation.
+fn add_relationship(
+    issues: &mut [Issue],
+    endpoints: &RelationshipEndpoints<'_>,
+    kind: &RelationshipKind,
+    bidirectional: bool,
+    now: &str,
+) -> Result<Vec<Uuid>> {
+    let mut modified_ids = Vec::new();
+    match kind {
+        RelationshipKind::Child => {
+            ensure_child_can_be_linked(issues, endpoints)?;
+            if push_unique_sorted(
+                &mut issue_mut_by_id(issues, endpoints.source_id).children,
+                endpoints.target_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.source_id, now, &mut modified_ids);
+            }
+            let child = issue_mut_by_id(issues, endpoints.target_id);
+            if child.parent != Some(endpoints.source_id) {
+                child.parent = Some(endpoints.source_id);
+                touch_issue_by_id(issues, endpoints.target_id, now, &mut modified_ids);
+            }
+        }
+        RelationshipKind::BlockedBy => {
+            if push_unique_sorted(
+                &mut issue_mut_by_id(issues, endpoints.source_id).blocked_by,
+                endpoints.target_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.source_id, now, &mut modified_ids);
+            }
+            if push_unique_sorted(
+                &mut issue_mut_by_id(issues, endpoints.target_id).blocks,
+                endpoints.source_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.target_id, now, &mut modified_ids);
+            }
+        }
+        RelationshipKind::Label(label) => {
+            add_labelled_link(
+                issues,
+                endpoints.source_id,
+                endpoints.target_id,
+                label,
+                now,
+                &mut modified_ids,
+            );
+            if bidirectional {
+                add_labelled_link(
+                    issues,
+                    endpoints.target_id,
+                    endpoints.source_id,
+                    label,
+                    now,
+                    &mut modified_ids,
+                );
+            }
+        }
+    }
+
+    Ok(modified_ids)
+}
+
+/// Remove one relationship and return the IDs of issues changed by the operation.
+fn remove_relationship(
+    issues: &mut [Issue],
+    endpoints: &RelationshipEndpoints<'_>,
+    kind: &RelationshipKind,
+    bidirectional: bool,
+    now: &str,
+) -> Vec<Uuid> {
+    let mut modified_ids = Vec::new();
+    match kind {
+        RelationshipKind::Child => {
+            if remove_uuid(
+                &mut issue_mut_by_id(issues, endpoints.source_id).children,
+                endpoints.target_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.source_id, now, &mut modified_ids);
+            }
+            let child = issue_mut_by_id(issues, endpoints.target_id);
+            if child.parent == Some(endpoints.source_id) {
+                child.parent = None;
+                touch_issue_by_id(issues, endpoints.target_id, now, &mut modified_ids);
+            }
+        }
+        RelationshipKind::BlockedBy => {
+            if remove_uuid(
+                &mut issue_mut_by_id(issues, endpoints.source_id).blocked_by,
+                endpoints.target_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.source_id, now, &mut modified_ids);
+            }
+            if remove_uuid(
+                &mut issue_mut_by_id(issues, endpoints.target_id).blocks,
+                endpoints.source_id,
+            ) {
+                touch_issue_by_id(issues, endpoints.target_id, now, &mut modified_ids);
+            }
+        }
+        RelationshipKind::Label(label) => {
+            remove_labelled_link(
+                issues,
+                endpoints.source_id,
+                endpoints.target_id,
+                label,
+                now,
+                &mut modified_ids,
+            );
+            if bidirectional {
+                remove_labelled_link(
+                    issues,
+                    endpoints.target_id,
+                    endpoints.source_id,
+                    label,
+                    now,
+                    &mut modified_ids,
+                );
+            }
+        }
+    }
+    modified_ids
+}
+
+/// Reject assigning a child that already belongs to a different parent.
+fn ensure_child_can_be_linked(
+    issues: &[Issue],
+    endpoints: &RelationshipEndpoints<'_>,
+) -> Result<()> {
+    let child = issues
+        .iter()
+        .find(|issue| issue.id == endpoints.target_id)
+        .expect("resolved target issue id must remain present");
+    ensure!(
+        child.parent.is_none() || child.parent == Some(endpoints.source_id),
+        InvalidRelationshipCommandSnafu {
+            reason: format!(
+                "target issue `{}` already has a different parent",
+                endpoints.target_reference
+            )
+        }
+    );
+    ensure!(
+        !is_ancestor(issues, endpoints.source_id, endpoints.target_id),
+        InvalidRelationshipCommandSnafu {
+            reason: format!(
+                "target issue `{}` is already an ancestor of source issue `{}`",
+                endpoints.target_reference, endpoints.source_reference
+            )
+        }
+    );
+    Ok(())
+}
+
+/// Return true when `ancestor_id` is in the issue's parent chain.
+fn is_ancestor(issues: &[Issue], issue_id: Uuid, ancestor_id: Uuid) -> bool {
+    let mut current_id = issue_id;
+    while let Some(current) = issues.iter().find(|issue| issue.id == current_id) {
+        let Some(parent_id) = current.parent else {
+            return false;
+        };
+        if parent_id == ancestor_id {
+            return true;
+        }
+        current_id = parent_id;
+    }
+    false
+}
+
+/// Add one labelled link if missing and record the changed source issue.
+fn add_labelled_link(
+    issues: &mut [Issue],
+    source_id: Uuid,
+    target_id: Uuid,
+    label: &str,
+    now: &str,
+    modified_ids: &mut Vec<Uuid>,
+) {
+    if push_unique_link(
+        &mut issue_mut_by_id(issues, source_id).links,
+        target_id,
+        label,
+    ) {
+        touch_issue_by_id(issues, source_id, now, modified_ids);
+    }
+}
+
+/// Remove one labelled link if present and record the changed source issue.
+fn remove_labelled_link(
+    issues: &mut [Issue],
+    source_id: Uuid,
+    target_id: Uuid,
+    label: &str,
+    now: &str,
+    modified_ids: &mut Vec<Uuid>,
+) {
+    if remove_link(
+        &mut issue_mut_by_id(issues, source_id).links,
+        target_id,
+        label,
+    ) {
+        touch_issue_by_id(issues, source_id, now, modified_ids);
+    }
+}
+
+/// Resolve a mutable issue by UUID after command arguments have been validated.
+fn issue_mut_by_id(issues: &mut [Issue], id: Uuid) -> &mut Issue {
+    issues
+        .iter_mut()
+        .find(|issue| issue.id == id)
+        .expect("resolved issue id must remain present")
+}
+
+/// Touch one issue and record it for persistence.
+fn touch_issue_by_id(issues: &mut [Issue], id: Uuid, now: &str, modified_ids: &mut Vec<Uuid>) {
+    let issue = issue_mut_by_id(issues, id);
+    issue.touch(now.to_string());
+    modified_ids.push(id);
+}
+
+/// Remove one UUID from a relationship vector.
+fn remove_uuid(values: &mut Vec<Uuid>, value: Uuid) -> bool {
+    let before_len = values.len();
+    values.retain(|candidate| *candidate != value);
+    before_len != values.len()
+}
+
+/// Insert a labelled link unless an identical target and label already exists.
+fn push_unique_link(links: &mut Vec<IssueLink>, target: Uuid, label: &str) -> bool {
+    if links
+        .iter()
+        .any(|link| link.target == target && link.label == label)
+    {
+        false
+    } else {
+        links.push(IssueLink {
+            target,
+            label: label.to_string(),
+        });
+        links.sort_by(|left, right| {
+            left.label
+                .cmp(&right.label)
+                .then_with(|| left.target.cmp(&right.target))
+        });
+        true
+    }
+}
+
+/// Remove labelled links matching both target and label.
+fn remove_link(links: &mut Vec<IssueLink>, target: Uuid, label: &str) -> bool {
+    let before_len = links.len();
+    links.retain(|link| link.target != target || link.label != label);
+    before_len != links.len()
 }
 
 /// Add the blocked issue UUID to each blocker and return changed blocker IDs.
@@ -840,6 +1191,37 @@ struct RefCommandIssues {
     /// True when issues were loaded from a ref-invalid worktree and alias state
     /// must be reconciled after saving the renamed issue.
     repair_ref_aliases_after_save: bool,
+}
+
+/// Resolved source and target endpoints for one relationship command.
+struct RelationshipEndpoints<'references> {
+    /// UUID of the source issue named first on the command line.
+    source_id: Uuid,
+    /// Current user-visible ref of the source issue for diagnostics.
+    source_reference: &'references str,
+    /// UUID of the target issue named second on the command line.
+    target_id: Uuid,
+    /// Current user-visible ref of the target issue for diagnostics.
+    target_reference: &'references str,
+}
+
+/// Relationship kind selected by the `link` and `unlink` selector flags.
+enum RelationshipKind {
+    /// Parent/child hierarchy: source becomes parent of target.
+    Child,
+    /// Blocking dependency: source is blocked by target.
+    BlockedBy,
+    /// One-way free-form relationship labelled by the contained text.
+    Label(String),
+}
+
+/// Add or remove operation selected by the top-level command.
+#[derive(Clone, Copy)]
+enum RelationshipMutation {
+    /// Add the selected relationship.
+    Add,
+    /// Remove the selected relationship.
+    Remove,
 }
 
 #[cfg(test)]

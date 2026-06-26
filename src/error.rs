@@ -193,6 +193,9 @@ pub enum Error {
         reason: String,
     },
 
+    #[snafu(display("invalid relationship command: {reason}"))]
+    InvalidRelationshipCommand { reason: String },
+
     #[snafu(display(
         "issue `{issue}` relationship field `{field}` references missing issue UUID {target}"
     ))]
