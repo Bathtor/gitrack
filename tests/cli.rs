@@ -229,6 +229,86 @@ fn list_and_ready_sort_by_priority_then_recent_update() {
 }
 
 #[test]
+fn human_output_uses_compact_sections_and_plain_captured_text() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--json"]);
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "create",
+            "Prepare API",
+            "--ref",
+            "project-api",
+            "--priority",
+            "1",
+        ],
+    );
+    run_json(
+        &workdir,
+        &[
+            "--json",
+            "create",
+            "Render issue view",
+            "--ref",
+            "project-render",
+            "--priority",
+            "3",
+            "--label",
+            "ui",
+            "--body",
+            "First line\nSecond line",
+            "--blocked-by",
+            "project-api",
+        ],
+    );
+    run_success(
+        &workdir,
+        &[
+            "comment",
+            "project-render",
+            "Investigated layout.\nSecond note line.",
+            "--author",
+            "codex",
+        ],
+    );
+
+    let coloured_env = [("LS_COLORS", "di=31:ln=32:ex=33:or=35:su=41")];
+    let list = run_success_with_env(&workdir, &["list"], &coloured_env);
+    let list_stdout = String::from_utf8_lossy(&list.stdout);
+    assert!(list_stdout.contains("□ project-api  Prepare API  [P1 · OPEN · task]"));
+    assert!(list_stdout.contains(
+        "! project-render  Render issue view  [P3 · BLOCKED · task · ui]  blocked by project-api"
+    ));
+    assert_no_ansi(&list_stdout);
+
+    let ready = run_success_with_env(&workdir, &["ready"], &coloured_env);
+    let ready_stdout = String::from_utf8_lossy(&ready.stdout);
+    assert_eq!(
+        ready_stdout.as_ref(),
+        "□ project-api  Prepare API  [P1 · OPEN · task]\n"
+    );
+
+    let show = run_success_with_env(&workdir, &["show", "project-render"], &coloured_env);
+    let show_stdout = String::from_utf8_lossy(&show.stdout);
+    assert!(show_stdout.contains("! project-render [TASK] · Render issue view   [P3 · BLOCKED]"));
+    assert!(show_stdout.contains("Owner: <unclaimed> · Availability: blocked · Labels: ui"));
+    assert!(show_stdout.contains("\nCreated: "));
+    assert!(show_stdout.contains("\nUUID: "));
+    assert!(show_stdout.contains("\nDESCRIPTION\nFirst line\nSecond line\n"));
+    assert!(show_stdout.contains("\nBLOCKERS\n  □ project-api: Prepare API [P1 · OPEN]\n"));
+    assert!(show_stdout.contains("\nCOMMENTS\n"));
+    assert!(show_stdout.contains("────────────────────────────────────────────────────────────"));
+    assert!(show_stdout.contains("codex · "));
+    assert!(show_stdout.contains("Investigated layout.\nSecond note line."));
+    assert_no_ansi(&show_stdout);
+}
+
+#[test]
 fn help_text_describes_common_agent_workflows() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -330,9 +410,14 @@ fn run_json(workdir: &Path, args: &[&str]) -> Value {
 }
 
 fn run_success(workdir: &Path, args: &[&str]) -> Output {
+    run_success_with_env(workdir, args, &[])
+}
+
+fn run_success_with_env(workdir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let output = Command::new(env!("CARGO_BIN_EXE_gitrack"))
         .current_dir(workdir)
         .args(args)
+        .envs(envs.iter().copied())
         .output()
         .expect("run gitrack");
     assert!(
@@ -343,6 +428,13 @@ fn run_success(workdir: &Path, args: &[&str]) -> Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
+}
+
+fn assert_no_ansi(output: &str) {
+    assert!(
+        !output.contains("\u{1b}["),
+        "captured output must not contain ANSI escapes: {output:?}"
+    );
 }
 
 fn run_failure(workdir: &Path, args: &[&str]) -> Output {

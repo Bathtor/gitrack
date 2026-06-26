@@ -1,9 +1,59 @@
 id = "019efeae-5394-75f3-b2aa-eb0ae20bf441"
 ref = "gitrack-wxk"
 title = "Improve human-readable output formatting"
-body = "Explore and implement clearer human-readable output formatting, likely taking inspiration from beads. Exact layout, fields, and defaults should be discussed when this task is picked up."
-status = "open"
+body = """
+Explore and implement clearer human-readable output formatting for human CLI output while keeping JSON output unchanged and deterministic.
+
+Agreed plan:
+A1. Improve colour and structure together. The highest-value areas are colours, indentation, compact headers, section headlines, and emphasis.
+A2. Use lscolors as the colour source so gitrack respects existing terminal/user preferences where possible. Add a small HumanPalette abstraction rather than scattering colour logic through formatting code.
+A3. Proposed lscolors semantic mapping:
+- issue refs: SymbolicLink
+- primary titles/headlines: Directory
+- open status: RegularFile/default
+- in-progress status: ExecutableFile
+- closed status: muted/default or MissingFile only if it reads well in practice
+- P0/P1 priority: Setuid or Capabilities
+- blocked/unresolved dependency: OrphanedSymbolicLink
+- labels/type chips: Socket or FIFO
+- UUIDs/timestamps/low-value metadata: muted/default
+- section headings: Directory style with compact uppercase headings
+A4. For list and ready, keep one issue per line but make it denser and easier to scan, e.g. '<status-glyph> gitrack-wxk  Improve human-readable output formatting  [P3 · IN-PROGRESS · task · codex]'.
+A5. Use the agreed non-beads status glyph set: open '□', in-progress '◆', closed '✓', blocked '!'.
+A6. For show, switch to a compact bd-inspired layout with a header carrying ref/type/title/priority/status, a metadata line for owner/type/status_reason/timestamps, then clear sections such as DESCRIPTION, BLOCKERS, and COMMENTS.
+A7. Omit empty sections. Comments should be divider-separated blocks rather than bullet list entries so multi-line notes stand alone.
+A8. Human output only in this task. JSON output structs and field order remain unchanged.
+A9. Honour NO_COLOR and only emit colour when stdout is a terminal. Tests should cover uncoloured layout and deterministic colour behaviour with controlled environment where practical.
+A10. Expected implementation size is under 1000 LOC: roughly 80-130 LOC for colour wrapper, 150-250 LOC for formatting, 120-220 LOC for tests, and small docs/help updates if needed."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 3
+assignee = "codex"
 created_at = "2026-06-25T12:08:18.068593Z"
-updated_at = "2026-06-25T12:08:18.068593Z"
+updated_at = "2026-06-26T14:57:47.413797Z"
+closed_at = "2026-06-26T14:57:47.413797Z"
+
+[[comments]]
+id = "019f0445-5d89-7fc2-af63-7ec53b57992e"
+author = "codex"
+body = "Implemented the agreed human-output formatting pass. Added lscolors-backed semantic styling for terminal human output, compact one-line list/ready summaries with status glyphs, bd-inspired show output with compact header/metadata lines, clear DESCRIPTION/BLOCKERS/COMMENTS sections, divider-separated comments, and captured-output tests that keep agent output plain and deterministic. JSON output remains unchanged. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; git diff --check."
+created_at = "2026-06-26T14:11:22.633897Z"
+
+[[comments]]
+id = "019f044e-f7c9-7a52-81ab-21116e94a648"
+author = "codex"
+body = "Review fixes: high-priority summary/detail badges now paint only the priority segment with the high-priority role; issue kinds and labels now have explicit semantic roles mapped to Socket and FIFO; list/ready reuse one HumanPalette instead of reparsing LS_COLORS per row; added view unit tests for role-to-indicator mapping, high-priority role selection, and the decision that in-progress work remains visually in-progress even when blockers are discovered later. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; cargo-deny check licenses; git diff --check."
+created_at = "2026-06-26T14:21:51.945326Z"
+
+[[comments]]
+id = "019f0460-5386-74d1-88bf-7538e55fe4a3"
+author = "codex"
+body = "Follow-up tweak: show headers now use Owner/Phase or Resolution/Availability, keep dates separate from UUID, and move UUID to its own muted line. Strong high-priority styling is now reserved for P0 only; P1 uses normal metadata styling so it remains readable."
+created_at = "2026-06-26T14:40:49.54274Z"
+
+[[comments]]
+id = "019f046f-db95-7e62-9ca8-b2cfbfd16e89"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T14:57:47.413797Z"

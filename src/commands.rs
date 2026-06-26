@@ -13,8 +13,8 @@ use crate::{
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
-        ExportView, InitView, IssueListView, emit_issue, print_issue_detail, print_issue_summary,
-        print_json,
+        ExportView, HumanPalette, InitView, IssueListView, emit_issue, print_issue_detail,
+        print_issue_summary, print_json,
     },
 };
 
@@ -433,8 +433,9 @@ fn list(args: &ListArgs, json: bool) -> Result<()> {
         let view = IssueListView::new(&store.config, &issues, filtered)?;
         print_json(&view, true)
     } else {
+        let palette = HumanPalette::stdout();
         for issue in filtered {
-            print_issue_summary(issue);
+            print_issue_summary(&palette, &issues, issue);
         }
         Ok(())
     }
@@ -456,8 +457,9 @@ fn ready(_args: ReadyArgs, json: bool) -> Result<()> {
         let view = IssueListView::new(&store.config, &issues, ready)?;
         print_json(&view, true)
     } else {
+        let palette = HumanPalette::stdout();
         for issue in ready {
-            print_issue_summary(issue);
+            print_issue_summary(&palette, &issues, issue);
         }
         Ok(())
     }
