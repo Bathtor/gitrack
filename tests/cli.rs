@@ -986,6 +986,13 @@ fn agents_update_replaces_managed_block_and_appends_workflow() {
     assert_eq!(update["changed"], true);
     assert!(agents_content.contains("Git-native issue tracking"));
     assert!(agents_content.contains("## Suggested gitrack Workflow"));
+    assert!(agents_content.contains("#### Core Loop"));
+    assert!(agents_content.contains("#### When Work Splits Into Children"));
+    assert!(agents_content.contains("#### When New Work Is Discovered"));
+    assert!(
+        agents_content
+            .contains("gitrack link <new-ref> <source-ref> --label \"discovered from\" --json")
+    );
     assert!(!agents_content.contains("\nold\n"));
 }
 

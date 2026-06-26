@@ -88,19 +88,39 @@ This project uses `gitrack` for Git-native issue tracking. Issue state lives in 
 
 ### Agent Workflow
 
+#### Core Loop
+
 1. Check ready work with `gitrack ready --json`.
-2. If a new branch is needed, create it before claiming the issue.
-3. Claim the selected issue with `gitrack claim <ref> --assignee <name> --json`.
-4. Read the issue with `gitrack show <ref> --json`.
-5. Set `status_reason = "planning"` while preparing the implementation plan.
-6. Align on a concrete plan with the user before implementation.
-7. Store the agreed plan in the issue body.
-8. If the plan splits into smaller issues, create child issues and link them with `gitrack link <parent> <child> --child --json`.
-9. If the split issues have ordering constraints, link them with `gitrack link <issue> <blocker> --blocked-by --json`.
-10. Once the user agrees, set `status_reason = "plan agreed"`.
-11. Implement against the agreed plan.
-12. Before handing work over for review, compare the result against the issue body and agreed plan.
-13. Set `status_reason = "in review"` when ready for user review.
-14. Only close the issue after the user agrees it is complete.
-15. When closing, use `status_reason = "completed"`, `"won't do"`, `"duplicate"`, or another concise explanation.
-16. Commit the issue state changes together with the code changes they describe.
+2. Claim the selected issue with `gitrack claim <ref> --assignee <name> --json`.
+3. Read the issue with `gitrack show <ref> --json`.
+4. Set `status_reason = "planning"` while preparing the implementation plan.
+5. Align on a concrete plan with the user before implementation.
+6. Store the agreed plan in the issue body.
+7. Once the user agrees, set `status_reason = "plan agreed"`.
+8. Implement against the agreed plan.
+9. Before handing work over for review, compare the result against the issue body and agreed plan.
+10. Set `status_reason = "in review"` when ready for user review.
+
+#### When a Branch Is Needed
+
+Create the branch before claiming the issue so the claim is committed on that branch.
+
+#### When Work Splits Into Children
+
+Create child issues and link them with `gitrack link <parent> <child> --child --json`.
+
+If the split issues have ordering constraints, link them with `gitrack link <issue> <blocker> --blocked-by --json`.
+
+#### When New Work Is Discovered
+
+Create the new issue, then link it back to the source issue with `gitrack link <new-ref> <source-ref> --label "discovered from" --json`.
+
+#### Before Committing
+
+Update issue state before committing so issue changes travel with the code or documentation changes they describe.
+
+#### Closing Work
+
+Only close the issue after the user agrees it is complete.
+
+When closing, use `gitrack close <ref> --reason <reason> --json` with a concise reason such as `completed`, `won't do`, or `duplicate`.
