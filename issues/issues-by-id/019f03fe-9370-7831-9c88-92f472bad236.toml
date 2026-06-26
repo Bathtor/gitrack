@@ -1,0 +1,33 @@
+id = "019f03fe-9370-7831-9c88-92f472bad236"
+ref = "gitrack-uqr"
+title = "Sort list and ready by priority and update time"
+body = """
+Change gitrack list and gitrack ready to order results by priority first, then by last updated time, with deterministic tie-breakers so human and JSON output remain stable.
+
+Agreed plan:
+A1. Add a shared ordering helper for list-like command output.
+A2. Sort by priority ascending, then updated_at descending, then ref and UUID as deterministic tie-breakers.
+A3. Apply the helper to both gitrack list and gitrack ready so human and JSON output match.
+A4. Add CLI tests covering list and ready ordering.
+A5. Validate with rustfmt, tests, clippy, and git diff --check."""
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 2
+labels = ["cli"]
+assignee = "codex"
+created_at = "2026-06-26T12:54:03.376771Z"
+updated_at = "2026-06-26T13:00:23.386739Z"
+closed_at = "2026-06-26T13:00:23.386739Z"
+
+[[comments]]
+id = "019f0401-61a2-7020-b808-d610b9d8c566"
+author = "codex"
+body = "Implemented shared ordering for gitrack list and gitrack ready: priority ascending, updated_at descending, then ref and UUID tie-breakers. Added an integration test covering both commands with deterministic timestamps. Validation passed: cargo fmt --all --check; cargo test list_and_ready_sort_by_priority_then_recent_update -- --test-threads=1; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; git diff --check."
+created_at = "2026-06-26T12:57:07.234908Z"
+
+[[comments]]
+id = "019f0404-5fda-78d3-b3a7-1b6b648901ee"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T13:00:23.386739Z"

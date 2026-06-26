@@ -1,0 +1,13 @@
+id = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
+ref = "gitrack-fl8"
+title = "Revisit issue relationships and hierarchy"
+body = "Revisit the issue relationship model. link and block should not be synonyms: blockers/dependencies should remain directional scheduling constraints, while links should represent non-blocking related work. Add support for parent/child hierarchy so issue structure can be represented without overloading refs alone."
+status = "open"
+type = "task"
+priority = 1
+labels = [
+    "design",
+    "relationships",
+]
+created_at = "2026-06-26T12:54:14.03174Z"
+updated_at = "2026-06-26T12:54:14.03174Z"

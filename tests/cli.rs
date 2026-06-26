@@ -123,6 +123,46 @@ fn claim_sets_in_progress_and_rejects_closed_issues() {
 }
 
 #[test]
+fn list_and_ready_sort_by_priority_then_recent_update() {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+    fs::create_dir(workdir.join(".git")).expect("create fake git dir");
+
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--json"]);
+
+    let p2_old = run_json(&workdir, &["--json", "create", "P2 old", "--priority", "2"]);
+    let p1_old = run_json(&workdir, &["--json", "create", "P1 old", "--priority", "1"]);
+    let p1_recent = run_json(
+        &workdir,
+        &["--json", "create", "P1 recent", "--priority", "1"],
+    );
+    let p3_recent = run_json(
+        &workdir,
+        &["--json", "create", "P3 recent", "--priority", "3"],
+    );
+
+    set_updated_at(&workdir, &p2_old, "2026-06-26T10:00:00Z");
+    set_updated_at(&workdir, &p1_old, "2026-06-26T11:00:00Z");
+    set_updated_at(&workdir, &p1_recent, "2026-06-26T12:00:00Z");
+    set_updated_at(&workdir, &p3_recent, "2026-06-26T13:00:00Z");
+
+    let expected = [
+        issue_ref(&p1_recent),
+        issue_ref(&p1_old),
+        issue_ref(&p2_old),
+        issue_ref(&p3_recent),
+    ];
+    let expected_refs = expected.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let list = run_json(&workdir, &["--json", "list"]);
+    assert_refs(&list, &expected_refs);
+
+    let ready = run_json(&workdir, &["--json", "ready"]);
+    assert_refs(&ready, &expected_refs);
+}
+
+#[test]
 fn help_text_describes_common_agent_workflows() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -256,6 +296,19 @@ fn run_failure(workdir: &Path, args: &[&str]) -> Output {
 
 fn issue_ref(issue: &Value) -> String {
     issue["ref"].as_str().expect("issue ref").to_string()
+}
+
+fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
+    let issue_id = issue["id"].as_str().expect("issue id");
+    let issue_path = workdir
+        .join("issues")
+        .join("issues-by-id")
+        .join(format!("{issue_id}.toml"));
+    let content = fs::read_to_string(&issue_path).expect("read issue file");
+    let mut issue_document = content.parse::<toml::Value>().expect("parse issue TOML");
+    issue_document["updated_at"] = toml::Value::String(updated_at.to_string());
+    let serialised = toml::to_string_pretty(&issue_document).expect("serialise issue TOML");
+    fs::write(&issue_path, serialised).expect("write issue file");
 }
 
 fn assert_refs(value: &Value, expected_refs: &[&str]) {
