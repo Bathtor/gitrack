@@ -1,3 +1,5 @@
+//! Binary entry point for the gitrack CLI.
+
 use clap::Parser;
 use gitrack::{Cli, run};
 

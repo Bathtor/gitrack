@@ -42,8 +42,8 @@ Split rationale:
 X1. The full epic is likely around 1,080-1,720 LOC if done in one pass.
 X2. The safest implementation order is S1, then S2, then S3/S4, with S5 either folded into each slice or kept as final hardening.
 X3. We should create actual child issues once the split and command names are confirmed."""
-status = "in-progress"
-status_reason = "planning"
+status = "closed"
+status_reason = "completed"
 type = "epic"
 priority = 1
 labels = [
@@ -60,4 +60,11 @@ children = [
     "019f04c8-edc7-7ac3-b201-f282879ff8e8",
 ]
 created_at = "2026-06-26T12:54:14.03174Z"
-updated_at = "2026-06-26T16:35:18.930976Z"
+updated_at = "2026-06-26T17:15:48.32339Z"
+closed_at = "2026-06-26T17:15:48.32339Z"
+
+[[comments]]
+id = "019f04ee-36e3-7ef2-a8ca-c0f56a585995"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T17:15:48.32339Z"
