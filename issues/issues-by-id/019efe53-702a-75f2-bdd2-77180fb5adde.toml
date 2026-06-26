@@ -1,13 +1,35 @@
 id = "019efe53-702a-75f2-bdd2-77180fb5adde"
 ref = "gitrack-zk2"
 title = "Add bd/beads JSONL importer"
-body = "Import bd/beads JSONL exports into the Git-native issue files without making bd part of the core storage model."
-status = "open"
+body = """
+Import bd/beads JSONL exports into the Git-native issue files without making bd part of the core storage model.
+
+Agreed plan:
+1. Add a non-default Cargo feature named beads-import. Leave it undocumented and mark the feature declaration as unsupported/not official support.
+2. Add a feature-gated hidden importer command, exposed only in builds compiled with beads-import.
+3. Target only the observed /Users/lkroll/Programming/flotsync-git/.beads/issues.jsonl export shape rather than general Beads compatibility.
+4. Preserve Beads IDs as gitrack refs and generate fresh UUIDv7 canonical ids.
+5. Preserve practical issue fields: title, description/body content, status, priority, type, assignee, labels, timestamps, close reason, comments, and relationships.
+6. Fold design, acceptance_criteria, and notes into the body under Markdown headings.
+7. Map Beads relationships as: parent-child source child -> target parent; discovered-from one-way labelled link source -> target; blocked-by source blocked by target; blocks source blocks target.
+8. Keep imports limited to an empty gitrack store, parse/validate first, then write.
+9. Use minimal importer errors; detailed polish is not required.
+10. Keep tests minimal, focused on converting a representative Beads export and proving the converted store loads correctly."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 3
 labels = [
     "compatibility",
     "importer",
 ]
+assignee = "codex"
 created_at = "2026-06-25T10:29:01.61079Z"
-updated_at = "2026-06-25T11:40:51.183595Z"
+updated_at = "2026-06-26T18:49:15.486482Z"
+closed_at = "2026-06-26T18:49:15.486482Z"
+
+[[comments]]
+id = "019f0543-c5de-7d43-95ee-7355d883d135"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T18:49:15.486482Z"

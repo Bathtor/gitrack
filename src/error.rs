@@ -227,4 +227,7 @@ pub enum Error {
         "issue `{reference}` has resolved status `{status}`; reopen it before claiming"
     ))]
     ResolvedIssue { reference: String, status: String },
+
+    #[snafu(display("import failed: {reason}"))]
+    Import { reason: String },
 }

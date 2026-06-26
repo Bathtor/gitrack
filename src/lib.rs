@@ -1,6 +1,8 @@
 //! Library entry point for the Git-native issue tracker CLI.
 
 mod agents;
+#[cfg(feature = "beads-import")]
+mod beads_import;
 mod commands;
 pub mod error;
 mod model;
