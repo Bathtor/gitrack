@@ -1,5 +1,7 @@
 //! CLI argument parsing and command execution.
 
+#[cfg(feature = "beads-import")]
+use std::path::PathBuf;
 use std::{env, path::Path};
 
 use clap::{Parser, Subcommand};
@@ -104,6 +106,9 @@ pub(crate) enum Command {
     Agents(AgentsArgs),
     #[command(about = "Export issue data")]
     Export(ExportArgs),
+    #[cfg(feature = "beads-import")]
+    #[command(name = "import-beads", hide = true)]
+    ImportBeads(BeadsImportArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -366,6 +371,13 @@ pub(crate) struct JsonExportArgs {
     pretty: bool,
 }
 
+#[cfg(feature = "beads-import")]
+#[derive(Debug, clap::Args)]
+pub(crate) struct BeadsImportArgs {
+    #[arg(help = "Path to a Beads JSONL issue export")]
+    path: PathBuf,
+}
+
 /// Execute one parsed CLI command.
 ///
 /// # Errors
@@ -390,6 +402,8 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Comment(args) => comment(args, cli.json),
         Command::Agents(args) => agents(args, cli.json),
         Command::Export(args) => export(args),
+        #[cfg(feature = "beads-import")]
+        Command::ImportBeads(args) => crate::beads_import::import_beads(&args.path, cli.json),
     }
 }
 
