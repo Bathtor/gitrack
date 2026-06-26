@@ -1,0 +1,65 @@
+id = "019f04c8-edc7-7ac3-b201-f282879ff8e8"
+ref = "gitrack-fl8.6"
+title = "Indent child issues under parents in list and ready views"
+body = """
+Parent epic: gitrack-fl8
+
+Show parent/child structure in compact list-style output by visually nesting child issues under their parent when any node in that hierarchy appears in the filtered result set.
+
+Initial scope:
+- Apply to human gitrack list output.
+- Apply to human gitrack ready output where hierarchy context is relevant to the result set.
+- Keep JSON output flat and deterministic.
+- Preserve the existing priority/updated ordering for top-level display roots and sibling groups, while forcing visible descendants to appear under their ancestors.
+
+Target behaviour:
+T1. Child issues must not be indented in place while separated from their parent by unrelated rows.
+T2. If a descendant issue is selected for display, its full ancestor chain must be forced into the human output even if those ancestors would not otherwise match the command filter.
+T3. Forcing ancestors into output does not force siblings into output; only selected descendants and required ancestors are shown.
+T4. Nested rows appear directly below their parent with compact indentation and prefixing to show hierarchy.
+T5. JSON output remains the command result set and does not include forced ancestors unless they matched normally.
+T6. Corrupt hierarchy cycles should fail clearly during rendering rather than recursing forever, even though store validation should normally reject cycles.
+
+Concrete plan:
+C1. Leave list and ready filtering unchanged. They should still produce the same sorted Vec<&Issue> command result set used for JSON.
+C2. Add a human-only recursive display-tree helper in views.rs that accepts all loaded issues plus the already sorted command result set.
+C3. In that helper, build lookup maps by UUID and a selected-id set from the command result set.
+C4. For each selected issue, walk parent links upward to build the full ancestor chain. Add every selected issue and required ancestor to the display tree, marking nodes as selected or forced only if needed for future styling.
+C5. Never add unselected siblings. A child appears only if it is selected or required as an ancestor of another selected node.
+C6. Sort display roots and each sibling list with the existing priority/updated/ref/id ordering.
+C7. Render the tree recursively: root rows use the normal summary format, descendant rows use a compact indentation/prefix and otherwise reuse the same badge, blocker, colour, and title formatting.
+C8. Update commands.rs so non-JSON list and ready call the grouped human renderer, while JSON paths continue calling IssueListView::new with the original filtered or ready vector.
+C9. Add CLI tests covering human list nesting, multi-level forced ancestor display in human ready, no sibling fan-out, unchanged JSON output/order, and cycle/error protection if practical within the slice.
+C10. Run cargo fmt --all --check, cargo test -- --test-threads=1, clippy pedantic, cargo-deny check licenses, and git diff --check.
+
+Estimated size:
+S1. Recursive display-tree helper and row rendering factor: 160-280 LOC.
+S2. Command wiring: 10-30 LOC.
+S3. Tests and fixtures: 180-320 LOC.
+S4. Documentation or help wording only if the behaviour is not obvious from tests: 0-40 LOC.
+S5. Total expected change: 350-670 LOC, below the 1000 LOC split threshold."""
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 2
+labels = [
+    "output",
+    "relationships",
+]
+assignee = "codex"
+parent = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
+created_at = "2026-06-26T16:35:04.775809Z"
+updated_at = "2026-06-26T16:53:44.749468Z"
+closed_at = "2026-06-26T16:53:44.749468Z"
+
+[[comments]]
+id = "019f04d5-167b-77d2-bb55-30d56cb8058c"
+author = "codex"
+body = "Implemented recursive human list/ready hierarchy rendering. Non-JSON list and ready now force ancestor chains for selected descendants, render descendants directly under their parents, avoid sibling fan-out, and keep JSON output on the original flat command result set. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; cargo-deny check licenses; git diff --check."
+created_at = "2026-06-26T16:48:21.627037Z"
+
+[[comments]]
+id = "019f04da-04ad-7143-962e-3e0c6939d7d2"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T16:53:44.749468Z"

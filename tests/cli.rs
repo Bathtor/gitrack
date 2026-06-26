@@ -589,6 +589,72 @@ fn list_and_ready_sort_by_priority_then_recent_update() {
 }
 
 #[test]
+fn human_list_nests_descendants_under_parent_groups() {
+    let (_temp, workdir) = initialised_workdir();
+    create_issue_with_priority(&workdir, "Parent", "project-parent", 3);
+    create_issue_with_priority(&workdir, "Child", "project-child", 2);
+    create_issue_with_priority(&workdir, "Grandchild", "project-grandchild", 1);
+    create_issue_with_priority(&workdir, "Unrelated", "project-unrelated", 0);
+    link_child(&workdir, "project-parent", "project-child");
+    link_child(&workdir, "project-child", "project-grandchild");
+
+    let list = run_success(&workdir, &["list"]);
+    let stdout = String::from_utf8_lossy(&list.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_line_prefixes(
+        &lines,
+        &[
+            "□ project-unrelated",
+            "□ project-parent",
+            "  ↳ □ project-child",
+            "    ↳ □ project-grandchild",
+        ],
+    );
+
+    let json_list = run_json(&workdir, &["--json", "list"]);
+    assert_refs(
+        &json_list,
+        &[
+            "project-unrelated",
+            "project-grandchild",
+            "project-child",
+            "project-parent",
+        ],
+    );
+}
+
+#[test]
+fn human_ready_forces_ancestors_without_sibling_fanout() {
+    let (_temp, workdir) = initialised_workdir();
+    create_issue_with_priority(&workdir, "Parent", "project-parent", 3);
+    create_issue_with_priority(&workdir, "Child", "project-child", 2);
+    create_issue_with_priority(&workdir, "Grandchild", "project-grandchild", 1);
+    create_issue_with_priority(&workdir, "Sibling", "project-sibling", 1);
+    link_child(&workdir, "project-parent", "project-child");
+    link_child(&workdir, "project-child", "project-grandchild");
+    link_child(&workdir, "project-parent", "project-sibling");
+    claim_issue(&workdir, "project-parent");
+    claim_issue(&workdir, "project-child");
+    claim_issue(&workdir, "project-sibling");
+
+    let ready = run_success(&workdir, &["ready"]);
+    let stdout = String::from_utf8_lossy(&ready.stdout);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_line_prefixes(
+        &lines,
+        &[
+            "◆ project-parent",
+            "  ↳ ◆ project-child",
+            "    ↳ □ project-grandchild",
+        ],
+    );
+    assert!(!stdout.contains("project-sibling"));
+
+    let json_ready = run_json(&workdir, &["--json", "ready"]);
+    assert_refs(&json_ready, &["project-grandchild"]);
+}
+
+#[test]
 fn human_output_uses_compact_sections_and_plain_captured_text() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -776,6 +842,32 @@ fn run_json(workdir: &Path, args: &[&str]) -> Value {
     serde_json::from_slice(&output.stdout).expect("parse JSON output")
 }
 
+fn create_issue_with_priority(workdir: &Path, title: &str, reference: &str, priority: u8) -> Value {
+    run_json(
+        workdir,
+        &[
+            "--json",
+            "create",
+            title,
+            "--ref",
+            reference,
+            "--priority",
+            &priority.to_string(),
+        ],
+    )
+}
+
+fn link_child(workdir: &Path, parent: &str, child: &str) -> Value {
+    run_json(workdir, &["--json", "link", parent, child, "--child"])
+}
+
+fn claim_issue(workdir: &Path, reference: &str) -> Value {
+    run_json(
+        workdir,
+        &["--json", "claim", reference, "--assignee", "agent"],
+    )
+}
+
 fn initialised_workdir() -> (tempfile::TempDir, PathBuf) {
     let temp = tempfile::tempdir().expect("create tempdir");
     let workdir = temp.path().join("project");
@@ -811,6 +903,16 @@ fn assert_no_ansi(output: &str) {
         !output.contains("\u{1b}["),
         "captured output must not contain ANSI escapes: {output:?}"
     );
+}
+
+fn assert_line_prefixes(lines: &[&str], expected_prefixes: &[&str]) {
+    assert_eq!(lines.len(), expected_prefixes.len());
+    for (index, (line, expected_prefix)) in lines.iter().zip(expected_prefixes).enumerate() {
+        assert!(
+            line.starts_with(expected_prefix),
+            "line {index} should start with {expected_prefix:?}, got {line:?}"
+        );
+    }
 }
 
 fn run_failure(workdir: &Path, args: &[&str]) -> Output {

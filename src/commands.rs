@@ -16,7 +16,7 @@ use crate::{
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
         ExportView, HumanPalette, InitView, IssueListView, emit_issue, print_issue_detail,
-        print_issue_summary, print_json,
+        print_issue_summaries, print_json, sort_issue_refs,
     },
 };
 
@@ -460,17 +460,14 @@ fn list(args: &ListArgs, json: bool) -> Result<()> {
             }
         })
         .collect::<Vec<_>>();
-    sort_listed_issues(&mut filtered);
+    sort_issue_refs(&mut filtered);
 
     if json {
         let view = IssueListView::new(&store.config, &issues, filtered)?;
         print_json(&view, true)
     } else {
         let palette = HumanPalette::stdout();
-        for issue in filtered {
-            print_issue_summary(&palette, &issues, issue);
-        }
-        Ok(())
+        print_issue_summaries(&palette, &issues, &filtered)
     }
 }
 
@@ -484,28 +481,15 @@ fn ready(_args: ReadyArgs, json: bool) -> Result<()> {
             ready.push(issue);
         }
     }
-    sort_listed_issues(&mut ready);
+    sort_issue_refs(&mut ready);
 
     if json {
         let view = IssueListView::new(&store.config, &issues, ready)?;
         print_json(&view, true)
     } else {
         let palette = HumanPalette::stdout();
-        for issue in ready {
-            print_issue_summary(&palette, &issues, issue);
-        }
-        Ok(())
+        print_issue_summaries(&palette, &issues, &ready)
     }
-}
-
-fn sort_listed_issues(issues: &mut [&Issue]) {
-    issues.sort_by(|left, right| {
-        left.priority
-            .cmp(&right.priority)
-            .then_with(|| right.updated_at.cmp(&left.updated_at))
-            .then_with(|| left.reference.cmp(&right.reference))
-            .then_with(|| left.id.cmp(&right.id))
-    });
 }
 
 fn show(args: &ShowArgs, json: bool) -> Result<()> {

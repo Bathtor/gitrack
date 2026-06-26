@@ -1,0 +1,9 @@
+id = "019f04cc-270c-7603-8f6c-eec28b2d0be1"
+ref = "gitrack-7pr"
+title = "Improve conditional workflows"
+body = "We need to restructure the agent workflow section a bit so instead of being a single linear flow it can cover conditional flows better. We already have 2 in there. I also want to add a condition for marking tasks as 'discovered from'"
+status = "open"
+type = "task"
+priority = 3
+created_at = "2026-06-26T16:38:36.044054Z"
+updated_at = "2026-06-26T16:38:36.044054Z"

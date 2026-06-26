@@ -1,18 +1,22 @@
 //! Human and JSON output views for CLI commands.
 
 use std::{
+    collections::{HashMap, HashSet},
     env,
     io::{self, IsTerminal, Write},
 };
 
 use lscolors::{FontStyle, Indicator, LsColors, Style};
 use serde::Serialize;
-use snafu::ResultExt;
+use snafu::{OptionExt, ResultExt};
 use uuid::Uuid;
 
 use crate::{
     agents::AgentsUpdateResult,
-    error::{Result, SerialiseJsonSnafu, WriteStdoutSnafu},
+    error::{
+        HierarchyCycleSnafu, MissingRelationshipTargetSnafu, Result, SerialiseJsonSnafu,
+        WriteStdoutSnafu,
+    },
     model::{Comment, Config, Issue, IssueKind, IssueLink, IssueRef, IssueStatus},
     readiness::{issue_is_ready, issue_map},
     store::Store,
@@ -34,6 +38,26 @@ pub(crate) fn emit_issue(
 }
 
 pub(crate) fn print_issue_summary(palette: &HumanPalette, issues: &[Issue], issue: &Issue) {
+    println!("{}", issue_summary_line(palette, issues, issue));
+}
+
+pub(crate) fn print_issue_summaries(
+    palette: &HumanPalette,
+    issues: &[Issue],
+    selected: &[&Issue],
+) -> Result<()> {
+    let roots = summary_tree_with_ancestors(issues, selected)?;
+    for root in &roots {
+        print_issue_summary_node(palette, issues, root, 0);
+    }
+    Ok(())
+}
+
+pub(crate) fn sort_issue_refs(issues: &mut [&Issue]) {
+    issues.sort_by(|left, right| issue_order(left, right));
+}
+
+fn issue_summary_line(palette: &HumanPalette, issues: &[Issue], issue: &Issue) -> String {
     let blocked = is_blocked_by_unresolved_issue(issues, issue);
     let marker = palette.paint(status_role(issue, blocked), status_marker(issue, blocked));
     let reference = palette.paint(HumanRole::IssueRef, issue.reference.to_string());
@@ -43,7 +67,7 @@ pub(crate) fn print_issue_summary(palette: &HumanPalette, issues: &[Issue], issu
         .map(|summary| format!("  {}", palette.paint(HumanRole::Blocked, summary)))
         .unwrap_or_default();
 
-    println!("{marker} {reference}  {title}  [{badge}]{blocker_note}");
+    format!("{marker} {reference}  {title}  [{badge}]{blocker_note}")
 }
 
 pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Issue) -> Result<()> {
@@ -228,9 +252,170 @@ impl IssueListView {
 
 const COMMENT_DIVIDER: &str = "────────────────────────────────────────────────────────────";
 
+/// Issue plus already-selected descendants for recursive human summary output.
+#[derive(Debug)]
+struct DisplayIssueNode<'issues> {
+    issue: &'issues Issue,
+    children: Vec<DisplayIssueNode<'issues>>,
+}
+
 fn print_section_heading(palette: &HumanPalette, heading: &str) {
     println!();
     println!("{}", palette.paint(HumanRole::SectionHeading, heading));
+}
+
+fn summary_tree_with_ancestors<'issues>(
+    issues: &'issues [Issue],
+    selected: &[&'issues Issue],
+) -> Result<Vec<DisplayIssueNode<'issues>>> {
+    let by_id = issues
+        .iter()
+        .map(|issue| (issue.id, issue))
+        .collect::<HashMap<_, _>>();
+    let mut included = HashSet::new();
+    for issue in selected {
+        include_ancestor_chain(issue, &by_id, &mut included)?;
+    }
+
+    let mut roots = Vec::new();
+    let mut children_by_parent = HashMap::<Uuid, Vec<Uuid>>::new();
+    for id in &included {
+        let issue = by_id
+            .get(id)
+            .copied()
+            .context(MissingRelationshipTargetSnafu {
+                issue: id.to_string(),
+                field: "display",
+                target: *id,
+            })?;
+        if let Some(parent_id) = issue.parent
+            && included.contains(&parent_id)
+        {
+            children_by_parent.entry(parent_id).or_default().push(*id);
+        } else {
+            roots.push(*id);
+        }
+    }
+
+    sort_issue_ids(&mut roots, &by_id)?;
+    for child_ids in children_by_parent.values_mut() {
+        sort_issue_ids(child_ids, &by_id)?;
+    }
+
+    let mut path = Vec::new();
+    roots
+        .into_iter()
+        .map(|id| build_issue_summary_node(id, &by_id, &children_by_parent, &mut path))
+        .collect()
+}
+
+fn include_ancestor_chain(
+    issue: &Issue,
+    by_id: &HashMap<Uuid, &Issue>,
+    included: &mut HashSet<Uuid>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    let mut current = Some(issue.id);
+    while let Some(id) = current {
+        if !seen.insert(id) {
+            return HierarchyCycleSnafu {
+                issue: issue.reference.to_string(),
+                ancestor: id,
+            }
+            .fail();
+        }
+
+        let current_issue = by_id
+            .get(&id)
+            .copied()
+            .context(MissingRelationshipTargetSnafu {
+                issue: issue.reference.to_string(),
+                field: "parent",
+                target: id,
+            })?;
+        included.insert(id);
+        current = current_issue.parent;
+    }
+    Ok(())
+}
+
+fn sort_issue_ids(ids: &mut [Uuid], by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    for id in ids.iter().copied() {
+        by_id.get(&id).context(MissingRelationshipTargetSnafu {
+            issue: id.to_string(),
+            field: "display",
+            target: id,
+        })?;
+    }
+
+    ids.sort_by(|left, right| {
+        let left_issue = by_id[left];
+        let right_issue = by_id[right];
+        issue_order(left_issue, right_issue)
+    });
+    Ok(())
+}
+
+fn issue_order(left: &Issue, right: &Issue) -> std::cmp::Ordering {
+    left.priority
+        .cmp(&right.priority)
+        .then_with(|| right.updated_at.cmp(&left.updated_at))
+        .then_with(|| left.reference.cmp(&right.reference))
+        .then_with(|| left.id.cmp(&right.id))
+}
+
+fn build_issue_summary_node<'issues>(
+    id: Uuid,
+    by_id: &HashMap<Uuid, &'issues Issue>,
+    children_by_parent: &HashMap<Uuid, Vec<Uuid>>,
+    path: &mut Vec<Uuid>,
+) -> Result<DisplayIssueNode<'issues>> {
+    if path.contains(&id) {
+        return HierarchyCycleSnafu {
+            issue: id.to_string(),
+            ancestor: id,
+        }
+        .fail();
+    }
+    path.push(id);
+
+    let issue = by_id
+        .get(&id)
+        .copied()
+        .context(MissingRelationshipTargetSnafu {
+            issue: id.to_string(),
+            field: "display",
+            target: id,
+        })?;
+    let mut children = Vec::new();
+    if let Some(child_ids) = children_by_parent.get(&id) {
+        for child_id in child_ids {
+            let child = build_issue_summary_node(*child_id, by_id, children_by_parent, path)?;
+            children.push(child);
+        }
+    }
+
+    path.pop();
+    Ok(DisplayIssueNode { issue, children })
+}
+
+fn print_issue_summary_node(
+    palette: &HumanPalette,
+    issues: &[Issue],
+    node: &DisplayIssueNode<'_>,
+    depth: usize,
+) {
+    let line = issue_summary_line(palette, issues, node.issue);
+    if depth == 0 {
+        println!("{line}");
+    } else {
+        let indent = "  ".repeat(depth);
+        println!("{indent}↳ {line}");
+    }
+
+    for child in &node.children {
+        print_issue_summary_node(palette, issues, child, depth + 1);
+    }
 }
 
 fn summary_badge(palette: &HumanPalette, issue: &Issue, blocked: bool) -> String {
@@ -609,7 +794,7 @@ impl DependencyView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::NewIssue;
+    use crate::{error::Error, model::NewIssue};
 
     #[test]
     fn human_roles_map_to_lscolors_indicators() {
@@ -721,6 +906,20 @@ mod tests {
             palette.paint(HumanRole::Metadata, "UUID: 019efeae"),
             "UUID: 019efeae"
         );
+    }
+
+    #[test]
+    fn summary_tree_with_ancestors_rejects_hierarchy_cycles() {
+        let mut parent = test_issue("gitrack-parent", IssueStatus::Open, 1);
+        let mut child = test_issue("gitrack-child", IssueStatus::Open, 1);
+        parent.parent = Some(child.id);
+        child.parent = Some(parent.id);
+        let issues = vec![parent, child];
+
+        let error =
+            summary_tree_with_ancestors(&issues, &[&issues[0]]).expect_err("cycle rejected");
+
+        assert!(matches!(error, Error::HierarchyCycle { .. }));
     }
 
     fn test_palette(lscolors: &str) -> HumanPalette {
