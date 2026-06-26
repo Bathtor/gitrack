@@ -232,8 +232,21 @@ pub(crate) struct Issue {
     pub(crate) labels: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) assignee: Option<String>,
+    /// Issue UUIDs that must be closed before this issue is ready.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) blocked_by: Vec<Uuid>,
+    /// Issue UUIDs blocked by this issue; mirror of their `blocked_by` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) blocks: Vec<Uuid>,
+    /// Structural parent issue UUID; hierarchy does not affect readiness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) parent: Option<Uuid>,
+    /// Structural child issue UUIDs; mirror of their `parent` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) children: Vec<Uuid>,
+    /// One-way informational links to related issues.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) links: Vec<IssueLink>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -270,6 +283,10 @@ impl Issue {
             labels,
             assignee,
             blocked_by,
+            blocks: Vec::new(),
+            parent: None,
+            children: Vec::new(),
+            links: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
             closed_at: None,
@@ -300,6 +317,15 @@ pub(crate) struct NewIssue {
     pub(crate) assignee: Option<String>,
     pub(crate) blocked_by: Vec<Uuid>,
     pub(crate) now: String,
+}
+
+/// One-way informational relationship to another issue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct IssueLink {
+    /// Target issue UUID.
+    pub(crate) target: Uuid,
+    /// Human-readable relationship label, trimmed and non-empty.
+    pub(crate) label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,13 +1,55 @@
 id = "019f03fe-bd0f-7792-8200-ce45cbfdc14b"
 ref = "gitrack-fl8"
 title = "Revisit issue relationships and hierarchy"
-body = "Revisit the issue relationship model. link and block should not be synonyms: blockers/dependencies should remain directional scheduling constraints, while links should represent non-blocking related work. Add support for parent/child hierarchy so issue structure can be represented without overloading refs alone."
-status = "open"
-type = "task"
+body = """
+Goal: move gitrack to an explicit UUID-backed relationship model with three distinct relationship families and a smaller relationship-command surface.
+
+Target relationship model:
+R1. Parent/child hierarchy: structural hierarchy, not scheduling. Represented in both involved issue files by issue UUIDs: the parent records the child UUID, and the child records the parent UUID.
+R2. Blocking dependencies: scheduling constraints. Represented in both involved issue files by issue UUIDs: the blocked issue records blocked_by, and the blocker records blocks. This remains the only relationship family that affects ready work.
+R3. Free-form links: informational relationships. Represented only on the source issue by target UUID plus a label such as "relates to", "discovered from", "split from", or "duplicates". These do not affect readiness.
+
+Command/API direction:
+C1. Make `gitrack link <source> <target>` the primary relationship creation command.
+C2. Use mutually exclusive flags to choose the relationship family:
+- `--child`: target becomes a child of source; write source.children and target.parent.
+- `--blocked-by`: source is blocked by target; write source.blocked_by and target.blocks.
+- `--label <label>`: source gets a one-way free-form link to target with the given label. Default label should likely be `relates to` if no relationship flag is supplied.
+C3. Add `--bidirectional` for free-form links only. This is shorthand for two one-way link operations with the same label. Later edits are not coupled; the caller owns consistency.
+C4. Add `gitrack unlink <source> <target>` with the same selector flags so relationships are not append-only.
+C5. Remove `gitrack block` from the public command surface in favour of `gitrack link --blocked-by`.
+
+Persistence decision:
+P1. Persist relationship targets by UUID only. Refs remain command-line/user-facing selectors and display labels resolved from current issue state.
+P2. Do not store ref snapshots in relationship fields. The whole point of the UUID design is that ref renames should not require rewriting relationship entries.
+P3. JSON/human output can resolve UUIDs to current refs at render time, as the existing blocked_by JSON view already does.
+
+Design constraints:
+D1. Keep issue files merge-friendly and readable in TOML.
+D2. Maintain deterministic JSON output for agents.
+D3. Preserve existing blocked_by readiness semantics.
+D4. Reject missing, duplicate, self-referential, cyclic hierarchy, and mismatched mirrored relationships with clear errors.
+D5. Free-form links do not participate in readiness or mirrored consistency checks beyond target existence and duplicate detection.
+
+Proposed child task split:
+S1. Schema and validation: add UUID-only relationship fields and consistency validation for blocked_by/blocks, parent/children, and labelled one-way links. Include missing/self/duplicate/cycle checks. Estimated 280-420 LOC.
+S2. Unified link/unlink CLI: implement `gitrack link` flags, `--bidirectional` free-form links, `gitrack unlink`, and remove `gitrack block` from the command surface. Estimated 260-420 LOC.
+S3. Readiness and JSON compatibility: preserve ready semantics, expose blocks/parent/children/links in deterministic JSON, and prove non-blocking relationships do not affect ready. Estimated 160-260 LOC.
+S4. Human output and docs: display PARENT, CHILDREN, BLOCKERS, BLOCKS, and LINKS in `show`; update README/help/agent-facing workflow docs. Estimated 220-360 LOC.
+S5. Ref/merge edge cases: add focused tests that ref renames do not rewrite relationships and that mirrored relationship conflicts fail clearly during load. Estimated 160-260 LOC.
+
+Split rationale:
+X1. The full epic is likely around 1,080-1,720 LOC if done in one pass.
+X2. The safest implementation order is S1, then S2, then S3/S4, with S5 either folded into each slice or kept as final hardening.
+X3. We should create actual child issues once the split and command names are confirmed."""
+status = "in-progress"
+status_reason = "planning"
+type = "epic"
 priority = 1
 labels = [
     "design",
     "relationships",
 ]
+assignee = "codex"
 created_at = "2026-06-26T12:54:14.03174Z"
-updated_at = "2026-06-26T12:54:14.03174Z"
+updated_at = "2026-06-26T15:25:21.464448Z"

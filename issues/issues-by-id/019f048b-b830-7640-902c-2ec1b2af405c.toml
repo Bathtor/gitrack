@@ -1,0 +1,28 @@
+id = "019f048b-b830-7640-902c-2ec1b2af405c"
+ref = "gitrack-fl8.4"
+title = "Display relationships in human output and docs"
+body = """
+Parent epic: gitrack-fl8
+
+Update human-facing relationship presentation and documentation.
+
+Scope:
+- Display PARENT, CHILDREN, BLOCKERS, BLOCKS, and LINKS as separate `gitrack show` sections.
+- Keep list/ready output compact while preserving relationship hints where useful.
+- Update README workflow examples and CLI help for the unified `link`/`unlink` model.
+- Keep docs concise and avoid duplicating generated AGENTS.md workflow text unnecessarily.
+
+Depends on: gitrack-fl8.1 schema and gitrack-fl8.2 CLI."""
+status = "open"
+type = "task"
+priority = 2
+labels = [
+    "docs",
+    "relationships",
+]
+blocked_by = [
+    "019f048b-6ab3-7ee2-98a1-e16bbad8658f",
+    "019f048b-9c24-78e1-bdbe-6375bbeec120",
+]
+created_at = "2026-06-26T15:28:13.360564Z"
+updated_at = "2026-06-26T15:28:42.744727Z"

@@ -186,6 +186,37 @@ pub enum Error {
     #[snafu(display("issue `{issue}` depends on missing blocker UUID {blocker}"))]
     MissingDependency { issue: String, blocker: uuid::Uuid },
 
+    #[snafu(display("issue `{issue}` has invalid relationship field `{field}`: {reason}"))]
+    InvalidRelationship {
+        issue: String,
+        field: &'static str,
+        reason: String,
+    },
+
+    #[snafu(display(
+        "issue `{issue}` relationship field `{field}` references missing issue UUID {target}"
+    ))]
+    MissingRelationshipTarget {
+        issue: String,
+        field: &'static str,
+        target: uuid::Uuid,
+    },
+
+    #[snafu(display(
+        "issue `{issue}` relationship field `{field}` references {target}, but target field `{target_field}` does not mirror it"
+    ))]
+    RelationshipMirrorMismatch {
+        issue: String,
+        field: &'static str,
+        target: uuid::Uuid,
+        target_field: &'static str,
+    },
+
+    #[snafu(display(
+        "issue `{issue}` has a parent/child hierarchy cycle through issue UUID {ancestor}"
+    ))]
+    HierarchyCycle { issue: String, ancestor: uuid::Uuid },
+
     #[snafu(display("invalid status `{status}`; expected one of: open, in-progress, closed"))]
     InvalidStatus { status: String },
 

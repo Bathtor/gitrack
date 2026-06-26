@@ -1,0 +1,31 @@
+id = "019f048b-6ab3-7ee2-98a1-e16bbad8658f"
+ref = "gitrack-fl8.2"
+title = "Implement unified link and unlink CLI"
+body = """
+Parent epic: gitrack-fl8
+
+Implement the unified relationship command surface.
+
+Scope:
+- Make `gitrack link <source> <target>` the primary relationship creation command.
+- Support mutually exclusive `--child`, `--blocked-by`, and `--label <label>` relationship selectors.
+- Default free-form label to `relates to` if no selector is supplied, if still agreed at implementation time.
+- Add `--bidirectional` for free-form links as shorthand for creating both one-way links.
+- Add `gitrack unlink <source> <target>` with matching selector flags.
+- Remove `gitrack block` from the public command surface.
+
+Depends on: gitrack-fl8.1 relationship schema and validation."""
+status = "open"
+type = "task"
+priority = 1
+labels = [
+    "cli",
+    "relationships",
+]
+blocked_by = ["019f048b-470d-7402-932f-7aff312e04d6"]
+blocks = [
+    "019f048b-b830-7640-902c-2ec1b2af405c",
+    "019f048b-d322-7fe3-996d-ef0d890df4ad",
+]
+created_at = "2026-06-26T15:27:53.523097Z"
+updated_at = "2026-06-26T15:28:32.647424Z"

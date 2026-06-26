@@ -371,7 +371,7 @@ fn init(args: InitArgs, json: bool) -> Result<()> {
 
 fn create(args: CreateArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
-    let issues = store.load_issues()?;
+    let mut issues = store.load_issues()?;
     let id = Uuid::now_v7();
     let reference = match args.reference {
         Some(reference) => {
@@ -398,11 +398,13 @@ fn create(args: CreateArgs, json: bool) -> Result<()> {
         priority,
         labels: normalise_labels(args.labels),
         assignee: normalise_optional(args.assignee),
-        blocked_by,
-        now,
+        blocked_by: blocked_by.clone(),
+        now: now.clone(),
     });
+    let modified_blockers = add_blocked_issue_to_blockers(&mut issues, &blocked_by, issue.id, &now);
 
     store.save_issue(&issue)?;
+    save_issues_by_id(&store, &issues, &modified_blockers)?;
     let mut all_issues = issues;
     all_issues.push(issue.clone());
     emit_issue(&store.config, &all_issues, &issue, json)
@@ -720,26 +722,87 @@ fn add_blockers(issue_identifier: &str, blockers: Vec<String>, json: bool) -> Re
     let store = Store::open(Path::new("."))?;
     let mut issues = store.load_issues()?;
     let blocker_ids = resolve_many(&issues, blockers)?;
-    let issue = Store::resolve_issue_mut(&mut issues, issue_identifier)?;
+    let issue = Store::resolve_issue(&issues, issue_identifier)?;
+    let issue_id = issue.id;
+    let issue_reference = issue.reference.to_string();
 
-    for blocker_id in blocker_ids {
+    for blocker_id in &blocker_ids {
         ensure!(
-            blocker_id != issue.id,
+            *blocker_id != issue_id,
             SelfDependencySnafu {
-                issue: issue.reference.to_string()
+                issue: issue_reference.clone()
             }
         );
-        if !issue.blocked_by.contains(&blocker_id) {
-            issue.blocked_by.push(blocker_id);
-        }
     }
 
-    issue.blocked_by.sort();
     let now = now_rfc3339()?;
-    issue.touch(now);
-    let updated = issue.clone();
-    store.save_issue(&updated)?;
+    let mut modified_ids = Vec::new();
+    {
+        let issue = Store::resolve_issue_mut(&mut issues, issue_identifier)?;
+        for blocker_id in &blocker_ids {
+            push_unique_sorted(&mut issue.blocked_by, *blocker_id);
+        }
+        issue.touch(now.clone());
+        modified_ids.push(issue.id);
+    }
+    let modified_blockers =
+        add_blocked_issue_to_blockers(&mut issues, &blocker_ids, issue_id, &now);
+    modified_ids.extend(modified_blockers);
+
+    let updated = issues
+        .iter()
+        .find(|issue| issue.id == issue_id)
+        .expect("resolved issue id must remain present")
+        .clone();
+    save_issues_by_id(&store, &issues, &modified_ids)?;
     emit_issue(&store.config, &issues, &updated, json)
+}
+
+/// Add the blocked issue UUID to each blocker and return changed blocker IDs.
+fn add_blocked_issue_to_blockers(
+    issues: &mut [Issue],
+    blocker_ids: &[Uuid],
+    blocked_id: Uuid,
+    now: &str,
+) -> Vec<Uuid> {
+    let mut modified_ids = Vec::new();
+    for blocker_id in blocker_ids {
+        let blocker = issues
+            .iter_mut()
+            .find(|issue| issue.id == *blocker_id)
+            .expect("resolved blocker id must remain present");
+        if push_unique_sorted(&mut blocker.blocks, blocked_id) {
+            blocker.touch(now.to_string());
+            modified_ids.push(blocker.id);
+        }
+    }
+    modified_ids
+}
+
+/// Persist each changed issue once, preserving the caller's loaded issue set.
+fn save_issues_by_id(store: &Store, issues: &[Issue], ids: &[Uuid]) -> Result<()> {
+    let mut ids = ids.to_vec();
+    ids.sort();
+    ids.dedup();
+    for id in ids {
+        let issue = issues
+            .iter()
+            .find(|issue| issue.id == id)
+            .expect("modified issue id must remain present");
+        store.save_issue(issue)?;
+    }
+    Ok(())
+}
+
+/// Insert a UUID into a sorted vector unless it is already present.
+fn push_unique_sorted(values: &mut Vec<Uuid>, value: Uuid) -> bool {
+    if values.contains(&value) {
+        false
+    } else {
+        values.push(value);
+        values.sort();
+        true
+    }
 }
 
 fn resolve_many(issues: &[Issue], identifiers: Vec<String>) -> Result<Vec<Uuid>> {

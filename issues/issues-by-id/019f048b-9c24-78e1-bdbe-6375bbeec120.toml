@@ -1,0 +1,26 @@
+id = "019f048b-9c24-78e1-bdbe-6375bbeec120"
+ref = "gitrack-fl8.3"
+title = "Preserve readiness and expose relationship JSON"
+body = """
+Parent epic: gitrack-fl8
+
+Preserve readiness behaviour and expose the expanded relationship model in deterministic JSON.
+
+Scope:
+- Keep `ready` dependent only on blocked_by.
+- Prove parent/child and free-form links do not affect readiness.
+- Expose blocks, parent, children, and labelled links in JSON show/list/export views.
+- Resolve relationship UUIDs to current refs only in output views, not in persisted relationship fields.
+
+Depends on: gitrack-fl8.1 relationship schema and validation."""
+status = "open"
+type = "task"
+priority = 2
+labels = [
+    "json",
+    "relationships",
+]
+blocked_by = ["019f048b-470d-7402-932f-7aff312e04d6"]
+blocks = ["019f048b-b830-7640-902c-2ec1b2af405c"]
+created_at = "2026-06-26T15:28:06.180523Z"
+updated_at = "2026-06-26T15:28:38.003703Z"

@@ -15,10 +15,12 @@ use crate::{
     error::{
         AlreadyInitialisedSnafu, AmbiguousIssueSnafu, CanonicalisePathSnafu, CreateDirSnafu,
         CreateSymlinkSnafu, CurrentDirSnafu, DuplicateIssueIdSnafu, DuplicateIssueRefSnafu,
-        InvalidIssueFileNameSnafu, InvalidRefAliasSnafu, IssueFileNameMismatchSnafu,
-        IssueNotFoundSnafu, MissingRefAliasSnafu, MissingStoreSnafu, NotGitRepositorySnafu,
-        ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu, ReadLinkSnafu, ReadMetadataSnafu,
-        RefAliasTargetMismatchSnafu, RefExistsSnafu, RemoveFileSnafu, Result, SerialiseTomlSnafu,
+        HierarchyCycleSnafu, InvalidIssueFileNameSnafu, InvalidRefAliasSnafu,
+        InvalidRelationshipSnafu, IssueFileNameMismatchSnafu, IssueNotFoundSnafu,
+        MissingRefAliasSnafu, MissingRelationshipTargetSnafu, MissingStoreSnafu,
+        NotGitRepositorySnafu, ParseTomlSnafu, ReadDirSnafu, ReadFileSnafu, ReadLinkSnafu,
+        ReadMetadataSnafu, RefAliasTargetMismatchSnafu, RefExistsSnafu,
+        RelationshipMirrorMismatchSnafu, RemoveFileSnafu, Result, SerialiseTomlSnafu,
         WriteFileSnafu,
     },
     model::{Config, Issue, IssueDir, IssueRef},
@@ -196,6 +198,7 @@ impl Store {
         }
 
         issues.sort_by_key(|issue| issue.id);
+        validate_relationships(&issues)?;
         if validate_refs {
             self.validate_ref_aliases(&issues)?;
         }
@@ -516,6 +519,212 @@ pub(crate) fn normalise_optional(value: Option<String>) -> Option<String> {
     })
 }
 
+/// Validate cross-issue relationship references after all issues have loaded.
+fn validate_relationships(issues: &[Issue]) -> Result<()> {
+    let by_id = issues
+        .iter()
+        .map(|issue| (issue.id, issue))
+        .collect::<HashMap<_, _>>();
+
+    for issue in issues {
+        validate_targets(issue, "blocked_by", &issue.blocked_by, &by_id)?;
+        validate_targets(issue, "blocks", &issue.blocks, &by_id)?;
+        validate_parent(issue, &by_id)?;
+        validate_targets(issue, "children", &issue.children, &by_id)?;
+        validate_links(issue, &by_id)?;
+    }
+
+    for issue in issues {
+        validate_blocking_mirrors(issue, &by_id)?;
+        validate_hierarchy_mirrors(issue, &by_id)?;
+    }
+
+    validate_hierarchy_cycles(issues, &by_id)
+}
+
+/// Validate direct UUID targets before mirror and cycle checks assume they exist.
+fn validate_targets(
+    issue: &Issue,
+    field: &'static str,
+    targets: &[Uuid],
+    by_id: &HashMap<Uuid, &Issue>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    for target in targets {
+        validate_target(issue, field, *target, by_id)?;
+        ensure!(
+            seen.insert(*target),
+            InvalidRelationshipSnafu {
+                issue: issue.reference.to_string(),
+                field,
+                reason: format!("duplicate target UUID {target}")
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Validate the optional parent pointer using the shared target rules.
+fn validate_parent(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    if let Some(parent) = issue.parent {
+        validate_target(issue, "parent", parent, by_id)?;
+    }
+    Ok(())
+}
+
+/// Validate a single relationship target against self-links and missing UUIDs.
+fn validate_target(
+    issue: &Issue,
+    field: &'static str,
+    target: Uuid,
+    by_id: &HashMap<Uuid, &Issue>,
+) -> Result<()> {
+    ensure!(
+        target != issue.id,
+        InvalidRelationshipSnafu {
+            issue: issue.reference.to_string(),
+            field,
+            reason: "must not reference the issue itself".to_string()
+        }
+    );
+    ensure!(
+        by_id.contains_key(&target),
+        MissingRelationshipTargetSnafu {
+            issue: issue.reference.to_string(),
+            field,
+            target
+        }
+    );
+    Ok(())
+}
+
+/// Validate one-way labelled links without requiring a reverse relationship.
+fn validate_links(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    let mut seen = HashSet::new();
+    for link in &issue.links {
+        validate_target(issue, "links", link.target, by_id)?;
+        ensure!(
+            !link.label.trim().is_empty(),
+            InvalidRelationshipSnafu {
+                issue: issue.reference.to_string(),
+                field: "links",
+                reason: "link label must not be empty".to_string()
+            }
+        );
+        ensure!(
+            link.label == link.label.trim(),
+            InvalidRelationshipSnafu {
+                issue: issue.reference.to_string(),
+                field: "links",
+                reason: "link label must not have leading or trailing whitespace".to_string()
+            }
+        );
+        ensure!(
+            seen.insert((link.target, link.label.clone())),
+            InvalidRelationshipSnafu {
+                issue: issue.reference.to_string(),
+                field: "links",
+                reason: format!(
+                    "duplicate labelled link `{}` to issue UUID {}",
+                    link.label, link.target
+                )
+            }
+        );
+    }
+    Ok(())
+}
+
+/// Enforce that `blocked_by` and `blocks` are exact bidirectional mirrors.
+fn validate_blocking_mirrors(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    for blocker_id in &issue.blocked_by {
+        let blocker = by_id
+            .get(blocker_id)
+            .expect("relationship target existence checked before mirror validation");
+        ensure!(
+            blocker.blocks.contains(&issue.id),
+            RelationshipMirrorMismatchSnafu {
+                issue: issue.reference.to_string(),
+                field: "blocked_by",
+                target: *blocker_id,
+                target_field: "blocks"
+            }
+        );
+    }
+
+    for blocked_id in &issue.blocks {
+        let blocked = by_id
+            .get(blocked_id)
+            .expect("relationship target existence checked before mirror validation");
+        ensure!(
+            blocked.blocked_by.contains(&issue.id),
+            RelationshipMirrorMismatchSnafu {
+                issue: issue.reference.to_string(),
+                field: "blocks",
+                target: *blocked_id,
+                target_field: "blocked_by"
+            }
+        );
+    }
+
+    Ok(())
+}
+
+/// Enforce that `parent` and `children` are exact bidirectional mirrors.
+fn validate_hierarchy_mirrors(issue: &Issue, by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    if let Some(parent_id) = issue.parent {
+        let parent = by_id
+            .get(&parent_id)
+            .expect("relationship target existence checked before mirror validation");
+        ensure!(
+            parent.children.contains(&issue.id),
+            RelationshipMirrorMismatchSnafu {
+                issue: issue.reference.to_string(),
+                field: "parent",
+                target: parent_id,
+                target_field: "children"
+            }
+        );
+    }
+
+    for child_id in &issue.children {
+        let child = by_id
+            .get(child_id)
+            .expect("relationship target existence checked before mirror validation");
+        ensure!(
+            child.parent == Some(issue.id),
+            RelationshipMirrorMismatchSnafu {
+                issue: issue.reference.to_string(),
+                field: "children",
+                target: *child_id,
+                target_field: "parent"
+            }
+        );
+    }
+
+    Ok(())
+}
+
+/// Reject parent chains that loop back through any ancestor issue.
+fn validate_hierarchy_cycles(issues: &[Issue], by_id: &HashMap<Uuid, &Issue>) -> Result<()> {
+    for issue in issues {
+        let mut seen = HashSet::new();
+        let mut current = issue;
+        while let Some(parent_id) = current.parent {
+            ensure!(
+                seen.insert(parent_id),
+                HierarchyCycleSnafu {
+                    issue: issue.reference.to_string(),
+                    ancestor: parent_id
+                }
+            );
+            current = by_id
+                .get(&parent_id)
+                .expect("relationship target existence checked before cycle validation");
+        }
+    }
+    Ok(())
+}
+
 fn find_git_root(start: &Path) -> Result<PathBuf> {
     let start = normalise_start(start)?;
     for ancestor in start.ancestors() {
@@ -697,7 +906,7 @@ mod tests {
     use super::*;
     use crate::{
         error::Error,
-        model::{IssueDir, IssueKind, IssueRef, IssueStatus, NewIssue, now_rfc3339},
+        model::{IssueDir, IssueKind, IssueLink, IssueRef, IssueStatus, NewIssue, now_rfc3339},
     };
     use std::fs;
 
@@ -921,6 +1130,100 @@ mod tests {
         let error = store.load_issues().expect_err("extra ref alias");
 
         assert!(matches!(error, Error::InvalidRefAlias { .. }));
+    }
+
+    #[test]
+    fn mirrored_blocking_relationships_are_accepted() {
+        let (_temp, store) = test_store();
+        let mut prerequisite = test_issue("project-blocker");
+        let mut work_item = test_issue("project-blocked");
+        work_item.blocked_by.push(prerequisite.id);
+        prerequisite.blocks.push(work_item.id);
+        store.save_issue(&prerequisite).expect("save blocker");
+        store.save_issue(&work_item).expect("save blocked");
+
+        let issues = store.load_issues().expect("load mirrored blockers");
+
+        assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn missing_blocking_mirrors_are_rejected() {
+        let (_temp, store) = test_store();
+        let prerequisite = test_issue("project-blocker");
+        let mut work_item = test_issue("project-blocked");
+        work_item.blocked_by.push(prerequisite.id);
+        store.save_issue(&prerequisite).expect("save blocker");
+        store.save_issue(&work_item).expect("save blocked");
+
+        let error = store.load_issues().expect_err("missing mirror");
+
+        assert!(matches!(error, Error::RelationshipMirrorMismatch { .. }));
+    }
+
+    #[test]
+    fn mirrored_hierarchy_relationships_are_accepted() {
+        let (_temp, store) = test_store();
+        let mut parent_issue = test_issue("project-parent");
+        let mut child_issue = test_issue("project-child");
+        parent_issue.children.push(child_issue.id);
+        child_issue.parent = Some(parent_issue.id);
+        store.save_issue(&parent_issue).expect("save parent");
+        store.save_issue(&child_issue).expect("save child");
+
+        let issues = store.load_issues().expect("load mirrored hierarchy");
+
+        assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn hierarchy_cycles_are_rejected() {
+        let (_temp, store) = test_store();
+        let mut parent = test_issue("project-parent");
+        let mut child = test_issue("project-child");
+        parent.parent = Some(child.id);
+        parent.children.push(child.id);
+        child.parent = Some(parent.id);
+        child.children.push(parent.id);
+        store.save_issue(&parent).expect("save parent");
+        store.save_issue(&child).expect("save child");
+
+        let error = store.load_issues().expect_err("hierarchy cycle");
+
+        assert!(matches!(error, Error::HierarchyCycle { .. }));
+    }
+
+    #[test]
+    fn duplicate_labelled_links_are_rejected() {
+        let (_temp, store) = test_store();
+        let mut source = test_issue("project-source");
+        let target = test_issue("project-target");
+        source.links.push(IssueLink {
+            target: target.id,
+            label: "relates to".to_string(),
+        });
+        source.links.push(IssueLink {
+            target: target.id,
+            label: "relates to".to_string(),
+        });
+        store.save_issue(&source).expect("save source");
+        store.save_issue(&target).expect("save target");
+
+        let error = store.load_issues().expect_err("duplicate link");
+
+        assert!(matches!(error, Error::InvalidRelationship { .. }));
+    }
+
+    #[test]
+    fn missing_relationship_targets_are_rejected() {
+        let (_temp, store) = test_store();
+        let mut issue = test_issue("project-source");
+        issue.children.push(Uuid::now_v7());
+        store.save_issue(&issue).expect("save issue");
+
+        let error = store.load_issues().expect_err("missing target");
+
+        assert!(matches!(error, Error::MissingRelationshipTarget { .. }));
     }
 
     #[test]
