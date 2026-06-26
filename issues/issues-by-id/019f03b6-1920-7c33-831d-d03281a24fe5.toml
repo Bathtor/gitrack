@@ -1,13 +1,43 @@
 id = "019f03b6-1920-7c33-831d-d03281a24fe5"
 ref = "gitrack-s1d"
 title = "Test merge-time ref clash resolution"
-body = "Exercise gitrack ref during a real Git merge conflict/ref-clash scenario. Verify that resolving a user-visible ref clash through the CLI updates the ref symlink and issue ref field without rewriting dependency UUIDs. Cover actual merge-state behaviour, document the recommended flow for agents and humans, and avoid documenting manual symlink edits as the normal resolution path."
-status = "open"
+body = """
+Exercise gitrack ref during a real Git merge conflict/ref-clash scenario. Verify that resolving a user-visible ref clash through the CLI updates the ref symlink and issue ref field without rewriting dependency UUIDs. Cover actual merge-state behaviour, document the recommended flow for agents and humans, and avoid documenting manual symlink edits as the normal resolution path.
+
+Agreed plan:
+A1. Add a Rust integration smoke test that uses a real Git repository, not a fake .git directory.
+A2. The test should initialise gitrack, commit base state, create branches that introduce a ref clash through ordinary tracked issue files, and merge to observe actual Git conflict behaviour.
+A3. The expected resolution flow should use gitrack ref, preferably by UUID when the user-visible ref is ambiguous.
+A4. Verify dependency links remain UUID-based and are not rewritten when a clashing ref is renamed.
+A5. If current gitrack ref cannot run in the duplicate-ref/conflicted state, add the smallest targeted support needed and improve the recovery guidance.
+A6. Validate with rustfmt, tests, clippy, and git diff --check."""
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 0
 labels = [
     "refs",
     "tests",
 ]
+assignee = "codex"
 created_at = "2026-06-26T11:34:53.4725Z"
-updated_at = "2026-06-26T11:39:24.35745Z"
+updated_at = "2026-06-26T13:41:13.911882Z"
+closed_at = "2026-06-26T13:41:13.911882Z"
+
+[[comments]]
+id = "019f040d-767c-77e2-8dff-4a71e78a5662"
+author = "codex"
+body = "Implemented and tested merge-time ref-clash recovery. Added a real Git integration smoke test that creates two branches with the same issue ref, observes the symlink add/add merge conflict, verifies ordinary list output reports the duplicate ref with UUID recovery guidance, resolves one side through gitrack ref <uuid> <new-ref>, confirms dependent issue TOML is unchanged, verifies dependency lookup follows the renamed ref by UUID, stages the resolved files, and completes the merge commit. Added a narrow relaxed issue loader used by UUID-targeted gitrack ref repair only. Updated README ref-clash guidance. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; git diff --check."
+created_at = "2026-06-26T13:10:19.004153Z"
+
+[[comments]]
+id = "019f0420-12e6-7620-8574-726a3bb4850b"
+author = "codex"
+body = "Review fix: added a second real-merge ref-clash integration case for renaming the issue currently owning the conflicted alias. Fixed UUID-targeted gitrack ref repair to reconcile aliases for the full loaded issue set after saving, so the old ref alias is recreated for the issue that kept the old ref. Validation passed: cargo fmt --all --check; cargo test -- --test-threads=1; cargo clippy --workspace --all-targets --no-deps --locked -- -D warnings -W clippy::pedantic; git diff --check."
+created_at = "2026-06-26T13:30:38.694092Z"
+
+[[comments]]
+id = "019f0429-c437-7b13-a9ce-0cbacab058ba"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T13:41:13.911882Z"

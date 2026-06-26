@@ -127,6 +127,24 @@ impl Store {
     }
 
     pub(crate) fn load_issues(&self) -> Result<Vec<Issue>> {
+        self.load_issues_with_ref_validation(true)
+    }
+
+    /// Load canonical issue files while skipping ref uniqueness and alias checks.
+    ///
+    /// This is intentionally narrower than `load_issues`: it exists so
+    /// `gitrack ref <uuid> ...` can repair merge-time duplicate ref aliases
+    /// after Git has transported both canonical issue files into the worktree.
+    pub(crate) fn load_issues_for_ref_repair(&self) -> Result<Vec<Issue>> {
+        self.load_issues_with_ref_validation(false)
+    }
+
+    /// Load canonical issues, optionally enforcing ref alias invariants.
+    ///
+    /// UUID/file integrity is always checked. Ref uniqueness and alias
+    /// validation can be skipped only for targeted repair flows that must load
+    /// otherwise-valid issue files from a merge-conflicted worktree.
+    fn load_issues_with_ref_validation(&self, validate_refs: bool) -> Result<Vec<Issue>> {
         let mut issues = Vec::new();
         let canonical_dir = self.issue_data_dir();
         let entries = match fs::read_dir(&canonical_dir) {
@@ -171,19 +189,16 @@ impl Store {
                 }
                 .fail();
             }
-            if let Some(first_id) = ids_by_ref.insert(issue.reference.clone(), issue.id) {
-                return DuplicateIssueRefSnafu {
-                    reference: issue.reference.to_string(),
-                    first_id,
-                    duplicate_id: issue.id,
-                }
-                .fail();
+            if validate_refs {
+                Self::ensure_ref_is_unique(&mut ids_by_ref, &issue)?;
             }
             issues.push(issue);
         }
 
         issues.sort_by_key(|issue| issue.id);
-        self.validate_ref_aliases(&issues)?;
+        if validate_refs {
+            self.validate_ref_aliases(&issues)?;
+        }
         Ok(issues)
     }
 
@@ -201,6 +216,27 @@ impl Store {
         self.ensure_ref_alias(issue)?;
         self.remove_stale_ref_aliases(issue)?;
         Ok(())
+    }
+
+    /// Rebuild the top-level ref aliases for a fully loaded issue set.
+    ///
+    /// This is used after a UUID-targeted ref repair because `save_issue` only
+    /// sees the renamed issue. If that issue owned the old alias path, the path
+    /// must be recreated for the other issue that kept the old ref.
+    pub(crate) fn reconcile_ref_aliases(&self, issues: &[Issue]) -> Result<()> {
+        let mut ids_by_ref = HashMap::new();
+        for issue in issues {
+            Self::ensure_ref_is_unique(&mut ids_by_ref, issue)?;
+        }
+
+        for issue in issues {
+            self.ensure_ref_alias(issue)?;
+        }
+        for issue in issues {
+            self.remove_stale_ref_aliases(issue)?;
+        }
+
+        self.validate_ref_aliases(issues)
     }
 
     pub(crate) fn issue_path(&self, id: Uuid) -> PathBuf {
@@ -394,6 +430,19 @@ impl Store {
             Self::validate_alias_path(&path, &reference, *id)?;
         }
 
+        Ok(())
+    }
+
+    /// Track one issue ref and reject any duplicate in the same loaded set.
+    fn ensure_ref_is_unique(ids_by_ref: &mut HashMap<IssueRef, Uuid>, issue: &Issue) -> Result<()> {
+        if let Some(first_id) = ids_by_ref.insert(issue.reference.clone(), issue.id) {
+            return DuplicateIssueRefSnafu {
+                reference: issue.reference.to_string(),
+                first_id,
+                duplicate_id: issue.id,
+            }
+            .fail();
+        }
         Ok(())
     }
 

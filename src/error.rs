@@ -145,7 +145,7 @@ pub enum Error {
     },
 
     #[snafu(display(
-        "duplicate issue ref `{reference}` for issue UUIDs {first_id} and {duplicate_id}"
+        "duplicate issue ref `{reference}` for issue UUIDs {first_id} and {duplicate_id}; resolve by running `gitrack ref <uuid> <new-ref>` with one of those UUIDs"
     ))]
     DuplicateIssueRef {
         reference: String,

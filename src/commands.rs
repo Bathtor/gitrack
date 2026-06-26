@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     agents::update_agents_file,
-    error::{InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
+    error::{Error, InvalidStatusSnafu, ResolvedIssueSnafu, Result, SelfDependencySnafu},
     model::{Comment, Issue, IssueKind, IssueRef, IssueStatus, NewIssue, now_rfc3339},
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
@@ -550,7 +550,10 @@ fn update(args: UpdateArgs, json: bool) -> Result<()> {
 
 fn rename_ref(args: RefArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
-    let mut issues = store.load_issues()?;
+    let RefCommandIssues {
+        mut issues,
+        repair_ref_aliases_after_save,
+    } = load_issues_for_ref_command(&store, &args.issue)?;
     let issue = Store::resolve_issue(&issues, &args.issue)?;
     let reference = if let Some(reference) = args.reference {
         let reference = IssueRef::parse(reference)?;
@@ -568,7 +571,42 @@ fn rename_ref(args: RefArgs, json: bool) -> Result<()> {
     issue.touch(now);
     let updated = issue.clone();
     store.save_issue(&updated)?;
+    if repair_ref_aliases_after_save {
+        store.reconcile_ref_aliases(&issues)?;
+    }
     emit_issue(&store.config, &issues, &updated, json)
+}
+
+/// Load issues for `gitrack ref`, allowing UUID-targeted ref repair.
+///
+/// Normal loading rejects duplicate refs and invalid aliases before command
+/// dispatch can resolve a target. During a merge ref clash, identifying the
+/// issue by UUID is still unambiguous, so this falls back to the store's repair
+/// loader only for that narrow case.
+fn load_issues_for_ref_command(store: &Store, identifier: &str) -> Result<RefCommandIssues> {
+    match store.load_issues() {
+        Ok(issues) => Ok(RefCommandIssues {
+            issues,
+            repair_ref_aliases_after_save: false,
+        }),
+        Err(error)
+            if Uuid::parse_str(identifier).is_ok()
+                && matches!(
+                    error,
+                    Error::DuplicateIssueRef { .. }
+                        | Error::MissingRefAlias { .. }
+                        | Error::InvalidRefAlias { .. }
+                        | Error::RefAliasTargetMismatch { .. }
+                ) =>
+        {
+            let issues = store.load_issues_for_ref_repair()?;
+            Ok(RefCommandIssues {
+                issues,
+                repair_ref_aliases_after_save: true,
+            })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn claim(args: ClaimArgs, json: bool) -> Result<()> {
@@ -729,6 +767,14 @@ fn default_actor() -> String {
     env::var("GITRACK_ACTOR")
         .or_else(|_| env::var("USER"))
         .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Issues loaded for `gitrack ref`, plus whether aliases need full repair.
+struct RefCommandIssues {
+    issues: Vec<Issue>,
+    /// True when issues were loaded from a ref-invalid worktree and alias state
+    /// must be reconciled after saving the renamed issue.
+    repair_ref_aliases_after_save: bool,
 }
 
 #[cfg(test)]

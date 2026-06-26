@@ -90,9 +90,9 @@ issues/gitrack-xny.toml -> issues-by-id/019f02e4-13f5-7dc1-b59a-c0ed1663cfee.tom
 This makes refs easy to browse in file managers and on Git hosts, while
 dependencies can still point at stable UUIDs internally. Use `gitrack ref` to
 rename user-visible refs; dependency links use UUIDs internally, so ref renames
-do not rewrite other issue files. If a merge produces a ref clash, prefer the
-same CLI flow once the worktree is in a state where gitrack can load the issue
-directory.
+do not rewrite other issue files. If a merge produces a ref clash, use the UUID
+form to rename one side, for example `gitrack ref <uuid> <new-ref>`, then stage
+the resolved issue files with Git.
 
 Issue files are readable TOML and include fields for UUID, ref, title, body,
 status, status reason, type, priority, labels, assignee, blockers, timestamps,

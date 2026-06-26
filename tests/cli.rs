@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Output},
 };
 
@@ -87,6 +87,72 @@ fn ref_command_generates_refs_and_accepts_explicit_child_refs() {
         &workdir,
         &["--json", "ref", &renamed_parent_ref, &explicit_child_ref],
     );
+}
+
+#[test]
+fn ref_command_repairs_real_merge_ref_clash_by_uuid() {
+    let fixture = setup_real_merge_ref_clash();
+    let workdir = &fixture.workdir;
+
+    let dependent_path = issue_file_path(workdir, &fixture.dependent_id);
+    let dependent_before = fs::read_to_string(&dependent_path).expect("read dependent issue");
+    let renamed = run_json(
+        workdir,
+        &["--json", "ref", &fixture.right_id, "project-clash-right"],
+    );
+    assert_eq!(
+        renamed["ref"].as_str().expect("renamed ref"),
+        "project-clash-right"
+    );
+    let dependent_after = fs::read_to_string(&dependent_path).expect("read dependent issue");
+    assert_eq!(dependent_after, dependent_before);
+
+    assert_ref_alias_points_to(workdir, "project-clash", &fixture.left_id);
+    assert_ref_alias_points_to(workdir, "project-clash-right", &fixture.right_id);
+
+    let dependent = run_json(workdir, &["--json", "show", &fixture.dependent_id]);
+    assert_eq!(dependent["blocked_by"][0]["id"], fixture.right_id);
+    assert_eq!(
+        dependent["blocked_by"][0]["ref"]
+            .as_str()
+            .expect("dependency ref"),
+        "project-clash-right"
+    );
+
+    assert_merge_ref_clash_resolved(workdir);
+}
+
+#[test]
+fn ref_command_repairs_ref_clash_when_renaming_current_alias_owner() {
+    let fixture = setup_real_merge_ref_clash();
+    let workdir = &fixture.workdir;
+
+    let dependent_path = issue_file_path(workdir, &fixture.dependent_id);
+    let dependent_before = fs::read_to_string(&dependent_path).expect("read dependent issue");
+    let renamed = run_json(
+        workdir,
+        &["--json", "ref", &fixture.left_id, "project-clash-left"],
+    );
+    assert_eq!(
+        renamed["ref"].as_str().expect("renamed ref"),
+        "project-clash-left"
+    );
+    let dependent_after = fs::read_to_string(&dependent_path).expect("read dependent issue");
+    assert_eq!(dependent_after, dependent_before);
+
+    assert_ref_alias_points_to(workdir, "project-clash-left", &fixture.left_id);
+    assert_ref_alias_points_to(workdir, "project-clash", &fixture.right_id);
+
+    let dependent = run_json(workdir, &["--json", "show", &fixture.dependent_id]);
+    assert_eq!(dependent["blocked_by"][0]["id"], fixture.right_id);
+    assert_eq!(
+        dependent["blocked_by"][0]["ref"]
+            .as_str()
+            .expect("dependency ref"),
+        "project-clash"
+    );
+
+    assert_merge_ref_clash_resolved(workdir);
 }
 
 #[test]
@@ -294,16 +360,150 @@ fn run_failure(workdir: &Path, args: &[&str]) -> Output {
     output
 }
 
+/// Build a real Git merge state with two branches adding the same ref alias.
+fn setup_real_merge_ref_clash() -> MergeRefClashFixture {
+    let temp = tempfile::tempdir().expect("create tempdir");
+    let workdir = temp.path().join("project");
+    fs::create_dir(&workdir).expect("create project dir");
+
+    run_git_success(&workdir, &["init"]);
+    run_git_success(&workdir, &["config", "user.name", "gitrack test"]);
+    run_git_success(
+        &workdir,
+        &["config", "user.email", "gitrack@example.invalid"],
+    );
+    run_git_success(&workdir, &["config", "commit.gpgsign", "false"]);
+    run_success(&workdir, &["init", "--issue-dir", "issues", "--no-agents"]);
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(&workdir, &["commit", "-m", "initialise gitrack"]);
+    let base_branch = git_stdout(&workdir, &["branch", "--show-current"]);
+
+    run_git_success(&workdir, &["checkout", "-b", "left"]);
+    let left_issue = run_json(
+        &workdir,
+        &["--json", "create", "Left side", "--ref", "project-clash"],
+    );
+    let left_id = issue_id(&left_issue);
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(&workdir, &["commit", "-m", "add left issue"]);
+
+    run_git_success(&workdir, &["checkout", &base_branch]);
+    run_git_success(&workdir, &["checkout", "-b", "right"]);
+    let right_issue = run_json(
+        &workdir,
+        &["--json", "create", "Right side", "--ref", "project-clash"],
+    );
+    let right_id = issue_id(&right_issue);
+    let dependent_issue = run_json(
+        &workdir,
+        &[
+            "--json",
+            "create",
+            "Right dependent",
+            "--blocked-by",
+            "project-clash",
+        ],
+    );
+    let dependent_id = issue_id(&dependent_issue);
+    run_git_success(&workdir, &["add", "."]);
+    run_git_success(&workdir, &["commit", "-m", "add right issue"]);
+
+    run_git_success(&workdir, &["checkout", "left"]);
+    run_git_failure(&workdir, &["merge", "right"]);
+    let conflicted_status = git_stdout(&workdir, &["status", "--short"]);
+    assert!(conflicted_status.contains("AA issues/project-clash.toml"));
+    assert_ref_alias_points_to(&workdir, "project-clash", &left_id);
+
+    let failed_list = run_failure(&workdir, &["list"]);
+    let failed_stderr = String::from_utf8_lossy(&failed_list.stderr);
+    assert!(failed_stderr.contains("duplicate issue ref `project-clash`"));
+    assert!(failed_stderr.contains("gitrack ref <uuid> <new-ref>"));
+
+    MergeRefClashFixture {
+        _temp: temp,
+        workdir,
+        left_id,
+        right_id,
+        dependent_id,
+    }
+}
+
+/// Verify Git sees the ref alias conflict as resolved after CLI repair.
+fn assert_merge_ref_clash_resolved(workdir: &Path) {
+    run_git_success(workdir, &["add", "."]);
+    let resolved_status = git_stdout(workdir, &["status", "--short"]);
+    assert!(!resolved_status.contains("AA issues/project-clash.toml"));
+    run_git_success(workdir, &["commit", "-m", "resolve ref clash"]);
+}
+
+fn run_git_success(workdir: &Path, args: &[&str]) -> Output {
+    let output = Command::new("git")
+        .current_dir(workdir)
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git failed\nargs: {:?}\nstatus: {}\nstdout: {}\nstderr: {}",
+        args,
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn run_git_failure(workdir: &Path, args: &[&str]) -> Output {
+    let output = Command::new("git")
+        .current_dir(workdir)
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        !output.status.success(),
+        "git unexpectedly succeeded\nargs: {:?}\nstdout: {}\nstderr: {}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn git_stdout(workdir: &Path, args: &[&str]) -> String {
+    let output = run_git_success(workdir, args);
+    String::from_utf8(output.stdout)
+        .expect("git stdout UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn issue_id(issue: &Value) -> String {
+    issue["id"].as_str().expect("issue id").to_string()
+}
+
 fn issue_ref(issue: &Value) -> String {
     issue["ref"].as_str().expect("issue ref").to_string()
 }
 
-fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
-    let issue_id = issue["id"].as_str().expect("issue id");
-    let issue_path = workdir
+fn issue_file_path(workdir: &Path, issue_id: &str) -> std::path::PathBuf {
+    workdir
         .join("issues")
         .join("issues-by-id")
-        .join(format!("{issue_id}.toml"));
+        .join(format!("{issue_id}.toml"))
+}
+
+fn assert_ref_alias_points_to(workdir: &Path, reference: &str, issue_id: &str) {
+    let alias_path = workdir.join("issues").join(format!("{reference}.toml"));
+    let target = fs::read_link(alias_path).expect("read ref alias");
+    assert_eq!(
+        target,
+        Path::new("issues-by-id").join(format!("{issue_id}.toml"))
+    );
+}
+
+fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
+    let issue_id = issue["id"].as_str().expect("issue id");
+    let issue_path = issue_file_path(workdir, issue_id);
     let content = fs::read_to_string(&issue_path).expect("read issue file");
     let mut issue_document = content.parse::<toml::Value>().expect("parse issue TOML");
     issue_document["updated_at"] = toml::Value::String(updated_at.to_string());
@@ -319,4 +519,14 @@ fn assert_refs(value: &Value, expected_refs: &[&str]) {
         .map(|issue| issue["ref"].as_str().expect("issue ref"))
         .collect::<Vec<_>>();
     assert_eq!(refs, expected_refs);
+}
+
+/// Real merge-clash fixture that keeps its temporary repository alive.
+struct MergeRefClashFixture {
+    /// Retained for the lifetime of `workdir`.
+    _temp: tempfile::TempDir,
+    workdir: PathBuf,
+    left_id: String,
+    right_id: String,
+    dependent_id: String,
 }
