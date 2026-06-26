@@ -12,8 +12,8 @@ R5. Require a PR description line matching Signed-off-by: Name <email>.
 R6. Do not add push-to-main DCO checks.
 R7. Update CONTRIBUTING.md to document PR-description DCO sign-offs for the squash-merge workflow.
 R8. Validate the workflow regex locally and run git diff --check."""
-status = "in-progress"
-status_reason = "in review"
+status = "closed"
+status_reason = "completed"
 type = "task"
 priority = 2
 labels = [
@@ -22,4 +22,11 @@ labels = [
 ]
 assignee = "codex"
 created_at = "2026-06-26T11:39:04.855896Z"
-updated_at = "2026-06-26T18:03:24.720573Z"
+updated_at = "2026-06-26T18:07:54.862739Z"
+closed_at = "2026-06-26T18:07:54.862739Z"
+
+[[comments]]
+id = "019f051d-ebee-7551-a2c2-00cc7389ee7a"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T18:07:54.862739Z"
