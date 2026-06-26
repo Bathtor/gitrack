@@ -132,11 +132,24 @@ fn help_text_describes_common_agent_workflows() {
     let root_stdout = String::from_utf8_lossy(&root_help.stdout);
     assert!(root_stdout.contains("deterministic output suitable for coding agents"));
     assert!(root_stdout.contains("gitrack ready"));
+    assert!(!root_stdout.contains("\n  help     "));
 
     let claim_help = run_success(&workdir, &["claim", "--help"]);
     let claim_stdout = String::from_utf8_lossy(&claim_help.stdout);
     assert!(claim_stdout.contains("move it to in-progress"));
     assert!(claim_stdout.contains("Reopen it first"));
+
+    let agents_help = run_success(&workdir, &["agents", "--help"]);
+    let agents_stdout = String::from_utf8_lossy(&agents_help.stdout);
+    assert!(!agents_stdout.contains("\n  help    "));
+
+    let nested_help = run_success(&workdir, &["agents", "update", "--help"]);
+    let nested_stdout = String::from_utf8_lossy(&nested_help.stdout);
+    assert!(nested_stdout.contains("--with-workflow"));
+
+    let failed_help_subcommand = run_failure(&workdir, &["help"]);
+    let failed_stderr = String::from_utf8_lossy(&failed_help_subcommand.stderr);
+    assert!(failed_stderr.contains("unrecognized subcommand"));
 }
 
 #[test]

@@ -1,0 +1,34 @@
+id = "019f0377-d3ab-7e23-899f-90e60f8a4624"
+ref = "gitrack-gby"
+title = "Remove generated help subcommand"
+body = """
+Problem
+Clap currently exposes both `gitrack <command> --help` and a generated `gitrack help <command>` subcommand. That creates two equivalent navigation paths and is confusing.
+
+Agreed plan
+1. Disable clap's generated `help` subcommand at the root command so the setting propagates to nested commands.
+2. Keep `-h` and `--help` flags available.
+3. Add CLI tests that assert the visible `help` command disappears and `--help` still works for root and nested commands.
+
+Estimated implementation size
+- CLI attribute change: 1-3 LOC.
+- Tests: 10-20 LOC.
+- Total expected change: below 50 LOC."""
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 3
+labels = [
+    "cli",
+    "help",
+]
+assignee = "codex"
+created_at = "2026-06-26T10:26:52.459345Z"
+updated_at = "2026-06-26T10:29:48.327991Z"
+closed_at = "2026-06-26T10:29:48.327991Z"
+
+[[comments]]
+id = "019f037a-82a8-7f82-ab3d-5d5e30ab3fb5"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-26T10:29:48.327991Z"

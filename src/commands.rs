@@ -22,6 +22,7 @@ use crate::{
 #[command(
     version,
     about = "A small Git-native issue tracker",
+    disable_help_subcommand = true,
     long_about = "gitrack stores issue state as ordinary tracked files in the current Git working tree. Use --json for deterministic output suitable for coding agents.",
     after_help = "Examples:\n  gitrack init\n  gitrack --json create \"Fix parser\" --blocked-by gitrack-abc\n  gitrack ready\n  gitrack claim gitrack-abc --assignee agent\n  gitrack close gitrack-abc --reason completed\n  gitrack export json --pretty"
 )]
