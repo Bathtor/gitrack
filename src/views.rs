@@ -234,10 +234,16 @@ impl ExportView {
 #[derive(Debug, Serialize)]
 pub(crate) struct IssueListView {
     issues: Vec<IssueView>,
+    stats: IssueListStats,
 }
 
 impl IssueListView {
-    pub(crate) fn new(config: &Config, all_issues: &[Issue], issues: Vec<&Issue>) -> Result<Self> {
+    pub(crate) fn new(
+        config: &Config,
+        all_issues: &[Issue],
+        issues: Vec<&Issue>,
+        stats: IssueListStats,
+    ) -> Result<Self> {
         let mut issue_views = Vec::with_capacity(issues.len());
         for issue in issues {
             let issue_view = IssueView::from_issue(config, all_issues, issue)?;
@@ -246,7 +252,48 @@ impl IssueListView {
 
         Ok(Self {
             issues: issue_views,
+            stats,
         })
+    }
+}
+
+/// Metadata describing whether a list-style response was truncated.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct IssueListStats {
+    /// Maximum selected issue count requested by config or CLI arguments.
+    limit: usize,
+    /// Selected issue count before applying `limit`.
+    total: usize,
+    /// Selected issue count after applying `limit`.
+    shown: usize,
+    /// Selected issue count hidden by `limit`.
+    skipped: usize,
+}
+
+impl IssueListStats {
+    #[must_use]
+    pub(crate) fn new(limit: usize, total: usize, shown: usize) -> Self {
+        Self {
+            limit,
+            total,
+            shown,
+            skipped: total.saturating_sub(shown),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn skipped(self) -> usize {
+        self.skipped
+    }
+
+    #[must_use]
+    pub(crate) fn shown(self) -> usize {
+        self.shown
+    }
+
+    #[must_use]
+    pub(crate) fn total(self) -> usize {
+        self.total
     }
 }
 

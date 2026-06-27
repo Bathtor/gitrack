@@ -1,0 +1,31 @@
+id = "019f0853-85d7-7040-84b9-9c645c4501ca"
+ref = "gitrack-89z"
+title = "Limit ready/list output task count"
+body = """
+Add a configurable limit to `gitrack list` and `gitrack ready` output.
+
+Agreed plan:
+- Add `default_list_limit = 20` to `.gitrack/config.toml`, with serde fallback so older configs without the key still open.
+- Add `-n, --limit <COUNT>` to `list` and `ready`; explicit CLI value overrides `default_list_limit`.
+- Count matching tasks after filtering/readiness and sorting, before applying the limit.
+- Apply the limit before human parent-closure expansion so counts refer to selected tasks, not extra ancestor context lines.
+- For human output, append a footer when rows are hidden, stating shown/total/skipped and reminding users to change `-n <COUNT>`.
+- For JSON output, make the breaking 0.2.0 shape an envelope with `issues` plus `stats`, so agents can see truncation metadata.
+- Update crate version to 0.2.0.
+- Do not add an unlimited flag in this task; callers can use the reported total for a second call with a large enough limit.
+
+Validation should cover default limit, explicit `-n`, JSON stats, human footer, parent-closure-before-limit behaviour, and init config output."""
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 2
+assignee = "codex"
+created_at = "2026-06-27T09:05:19.319276Z"
+updated_at = "2026-06-27T09:34:45.368116Z"
+closed_at = "2026-06-27T09:34:45.368116Z"
+
+[[comments]]
+id = "019f086e-7878-7a73-9663-623e6d8ac526"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-27T09:34:45.368116Z"

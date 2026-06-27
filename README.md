@@ -55,7 +55,7 @@ gitrack close gitrack-abc --reason completed # Close resolved work.
 Use `--json` on commands when another program or agent is consuming the output:
 
 ```bash
-gitrack --json ready # Emit ready work as JSON.
+gitrack --json ready # Emit limited ready work plus stats as JSON.
 gitrack --json show gitrack-abc # Emit one issue as JSON.
 gitrack export json --pretty # Emit all issues as pretty JSON.
 ```
@@ -75,9 +75,10 @@ The default issue directory is `issues`, but it can be changed during init:
 gitrack init --issue-dir tasks # Store issue files under ./tasks.
 ```
 
-New issues default to type `task` and priority `3`. These defaults are written
-to `.gitrack/config.toml`, where they can be changed later by editing the config
-directly. They can also be customised during init:
+New issues default to type `task` and priority `3`. List-style output defaults
+to showing at most `20` matching issues. These defaults are written to
+`.gitrack/config.toml`, where they can be changed later by editing the config
+directly. The create defaults can also be customised during init:
 
 ```bash
 gitrack init --default-type bug --default-priority 1
@@ -145,18 +146,21 @@ TL;DR:
 
 ```bash
 gitrack ready # Show open, unclaimed, unblocked work.
+gitrack ready -n 50 # Show up to 50 ready issues.
 gitrack show gitrack-abc # Inspect one issue before claiming it.
 ```
 
 Use `gitrack ready` when choosing what to work on next. It filters out claimed
-work and work blocked by unresolved dependencies. Use `gitrack show` before
-claiming when an agent or human needs the full body, metadata, relationships,
-and comments.
+work and work blocked by unresolved dependencies. `ready` and `list` apply
+`default_list_limit` from `.gitrack/config.toml`; use `-n, --limit <COUNT>` to
+override that for one call. Use `gitrack show` before claiming when an agent or
+human needs the full body, metadata, relationships, and comments.
 
 Use `gitrack list` for broader scans:
 
 ```bash
 gitrack list # List unresolved issues.
+gitrack list -n 100 # List up to 100 unresolved issues.
 gitrack list --all # Include closed issues.
 gitrack list --status closed # Show only closed issues.
 ```
@@ -288,13 +292,28 @@ gitrack reopen gitrack-abc # Move a closed issue back to open.
 TL;DR:
 
 ```bash
-gitrack --json ready # Deterministic JSON for ready work.
+gitrack --json ready # Deterministic JSON for limited ready work plus stats.
 gitrack export json --pretty # Deterministic JSON for every issue.
 ```
 
 Use `--json` on individual commands when another program or coding agent is
-consuming the result. Use `gitrack export json` when a tool needs the full issue
-set in one deterministic payload:
+consuming the result. `list` and `ready` return an `issues` array plus `stats`
+so agents can tell whether the output was truncated:
+
+```json
+{
+  "issues": [],
+  "stats": {
+    "limit": 20,
+    "total": 37,
+    "shown": 20,
+    "skipped": 17
+  }
+}
+```
+
+Use `gitrack export json` when a tool needs the full issue set in one
+deterministic payload:
 
 ```bash
 gitrack --json show gitrack-abc # Emit one issue as JSON.

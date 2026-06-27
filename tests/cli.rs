@@ -752,9 +752,77 @@ fn list_and_ready_sort_by_priority_then_recent_update() {
 
     let list = run_json(&workdir, &["--json", "list"]);
     assert_refs(&list, &expected_refs);
+    assert_stats(&list, 20, 4, 4, 0);
 
     let ready = run_json(&workdir, &["--json", "ready"]);
     assert_refs(&ready, &expected_refs);
+    assert_stats(&ready, 20, 4, 4, 0);
+}
+
+#[test]
+fn list_and_ready_use_default_limit_from_config() {
+    let (_temp, workdir) = initialised_workdir();
+    for index in 0..21 {
+        let title = format!("Item {index:02}");
+        let reference = format!("project-item-{index:02}");
+        create_issue_with_priority(&workdir, &title, &reference, 3);
+    }
+
+    let list = run_json(&workdir, &["--json", "list"]);
+    assert_eq!(issue_refs(&list).len(), 20);
+    assert_stats(&list, 20, 21, 20, 1);
+
+    let ready = run_json(&workdir, &["--json", "ready"]);
+    assert_eq!(issue_refs(&ready).len(), 20);
+    assert_stats(&ready, 20, 21, 20, 1);
+}
+
+#[test]
+fn list_limit_defaults_when_config_omits_new_field() {
+    let (_temp, workdir) = initialised_workdir();
+    let config_path = workdir.join(".gitrack/config.toml");
+    let config_content = fs::read_to_string(&config_path).expect("read config");
+    let config_without_limit = config_content.replace("default_list_limit = 20\n", "");
+    fs::write(&config_path, config_without_limit).expect("write config");
+
+    for index in 0..21 {
+        let title = format!("Item {index:02}");
+        let reference = format!("project-item-{index:02}");
+        create_issue_with_priority(&workdir, &title, &reference, 3);
+    }
+
+    let list = run_json(&workdir, &["--json", "list"]);
+    assert_stats(&list, 20, 21, 20, 1);
+}
+
+#[test]
+fn list_and_ready_explicit_limit_reports_json_stats_and_human_footer() {
+    let (_temp, workdir) = initialised_workdir();
+    create_issue_with_priority(&workdir, "First", "project-first", 1);
+    create_issue_with_priority(&workdir, "Second", "project-second", 2);
+    create_issue_with_priority(&workdir, "Third", "project-third", 3);
+
+    let json_list = run_json(&workdir, &["--json", "list", "-n", "2"]);
+    assert_refs(&json_list, &["project-first", "project-second"]);
+    assert_stats(&json_list, 2, 3, 2, 1);
+
+    let json_ready = run_json(&workdir, &["--json", "ready", "-n", "2"]);
+    assert_refs(&json_ready, &["project-first", "project-second"]);
+    assert_stats(&json_ready, 2, 3, 2, 1);
+
+    let list = run_success(&workdir, &["list", "-n", "2"]);
+    let list_stdout = String::from_utf8_lossy(&list.stdout);
+    assert_limit_footer(
+        &list_stdout,
+        "Showing 2 of 3 tasks; 1 hidden by limit. Use -n <COUNT> to change the limit.",
+    );
+
+    let ready = run_success(&workdir, &["ready", "-n", "2"]);
+    let ready_stdout = String::from_utf8_lossy(&ready.stdout);
+    assert_limit_footer(
+        &ready_stdout,
+        "Showing 2 of 3 tasks; 1 hidden by limit. Use -n <COUNT> to change the limit.",
+    );
 }
 
 #[test]
@@ -799,6 +867,7 @@ fn human_ready_forces_ancestors_without_sibling_fanout() {
     create_issue_with_priority(&workdir, "Child", "project-child", 2);
     create_issue_with_priority(&workdir, "Grandchild", "project-grandchild", 1);
     create_issue_with_priority(&workdir, "Sibling", "project-sibling", 1);
+    create_issue_with_priority(&workdir, "Later", "project-later", 2);
     link_child(&workdir, "project-parent", "project-child");
     link_child(&workdir, "project-child", "project-grandchild");
     link_child(&workdir, "project-parent", "project-sibling");
@@ -806,7 +875,7 @@ fn human_ready_forces_ancestors_without_sibling_fanout() {
     claim_issue(&workdir, "project-child");
     claim_issue(&workdir, "project-sibling");
 
-    let ready = run_success(&workdir, &["ready"]);
+    let ready = run_success(&workdir, &["ready", "-n", "1"]);
     let stdout = String::from_utf8_lossy(&ready.stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
     assert_line_prefixes(
@@ -815,12 +884,15 @@ fn human_ready_forces_ancestors_without_sibling_fanout() {
             "◆ project-parent",
             "  ↳ ◆ project-child",
             "    ↳ □ project-grandchild",
+            "Showing 1 of 2 tasks",
         ],
     );
     assert!(!stdout.contains("project-sibling"));
+    assert!(!stdout.contains("project-later"));
 
-    let json_ready = run_json(&workdir, &["--json", "ready"]);
+    let json_ready = run_json(&workdir, &["--json", "ready", "-n", "1"]);
     assert_refs(&json_ready, &["project-grandchild"]);
+    assert_stats(&json_ready, 1, 2, 1, 1);
 }
 
 #[test]
@@ -985,11 +1057,13 @@ fn init_customises_config_defaults_used_by_create() {
     );
     assert_eq!(init["config"]["default_type"], "bug");
     assert_eq!(init["config"]["default_priority"], 1);
+    assert_eq!(init["config"]["default_list_limit"], 20);
 
     let config_content =
         fs::read_to_string(workdir.join(".gitrack/config.toml")).expect("read config");
     assert!(config_content.contains("default_type = \"bug\""));
     assert!(config_content.contains("default_priority = 1"));
+    assert!(config_content.contains("default_list_limit = 20"));
 
     let issue = run_json(&workdir, &["--json", "create", "Use configured defaults"]);
     assert_eq!(issue["type"], "bug");
@@ -1461,6 +1535,17 @@ fn set_updated_at(workdir: &Path, issue: &Value, updated_at: &str) {
 fn assert_refs(value: &Value, expected_refs: &[&str]) {
     let refs = issue_refs(value);
     assert_eq!(refs, expected_refs);
+}
+
+fn assert_stats(value: &Value, limit: usize, total: usize, shown: usize, skipped: usize) {
+    assert_eq!(value["stats"]["limit"], limit);
+    assert_eq!(value["stats"]["total"], total);
+    assert_eq!(value["stats"]["shown"], shown);
+    assert_eq!(value["stats"]["skipped"], skipped);
+}
+
+fn assert_limit_footer(output: &str, expected: &str) {
+    assert_eq!(output.lines().last(), Some(expected));
 }
 
 /// Relationship fixture plus pre-rename issue-file snapshots.

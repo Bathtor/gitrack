@@ -14,14 +14,14 @@ use crate::{
         Error, InvalidRelationshipCommandSnafu, InvalidStatusSnafu, ResolvedIssueSnafu, Result,
     },
     model::{
-        Comment, DEFAULT_ISSUE_PRIORITY, DEFAULT_ISSUE_TYPE, Issue, IssueKind, IssueLink, IssueRef,
-        IssueStatus, NewIssue, now_rfc3339,
+        Comment, Config, DEFAULT_ISSUE_PRIORITY, DEFAULT_ISSUE_TYPE, Issue, IssueKind, IssueLink,
+        IssueRef, IssueStatus, NewIssue, now_rfc3339,
     },
     readiness::{issue_is_ready, issue_map},
     store::{DEFAULT_ISSUES_DIR, Store, normalise_labels, normalise_optional},
     views::{
-        ExportView, HumanPalette, InitView, IssueListView, emit_issue, print_issue_detail,
-        print_issue_summaries, print_json, sort_issue_refs,
+        ExportView, HumanPalette, InitView, IssueListStats, IssueListView, emit_issue,
+        print_issue_detail, print_issue_summaries, print_json, sort_issue_refs,
     },
 };
 
@@ -181,10 +181,26 @@ pub(crate) struct ListArgs {
 
     #[arg(long, help = "Filter by status: open, in-progress, or closed")]
     status: Option<String>,
+
+    #[arg(
+        short = 'n',
+        long = "limit",
+        value_name = "COUNT",
+        help = "Maximum number of matching issues to show"
+    )]
+    limit: Option<usize>,
 }
 
 #[derive(Debug, clap::Args)]
-pub(crate) struct ReadyArgs {}
+pub(crate) struct ReadyArgs {
+    #[arg(
+        short = 'n',
+        long = "limit",
+        value_name = "COUNT",
+        help = "Maximum number of ready issues to show"
+    )]
+    limit: Option<usize>,
+}
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct ShowArgs {
@@ -390,7 +406,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Init(args) => init(args, cli.json),
         Command::Create(args) => create(args, cli.json),
         Command::List(args) => list(&args, cli.json),
-        Command::Ready(args) => ready(args, cli.json),
+        Command::Ready(args) => ready(&args, cli.json),
         Command::Show(args) => show(&args, cli.json),
         Command::Update(args) => update(args, cli.json),
         Command::Ref(args) => rename_ref(args, cli.json),
@@ -418,7 +434,8 @@ fn init(args: InitArgs, json: bool) -> Result<()> {
     let agents = if args.no_agents {
         None
     } else {
-        Some(update_agents_file(&store.root, false)?)
+        let update = update_agents_file(&store.root, false)?;
+        Some(update)
     };
 
     if json {
@@ -498,17 +515,13 @@ fn list(args: &ListArgs, json: bool) -> Result<()> {
         })
         .collect::<Vec<_>>();
     sort_issue_refs(&mut filtered);
+    let limit = args.limit.unwrap_or(store.config.default_list_limit);
+    let selection = LimitedIssueSelection::new(filtered, limit);
 
-    if json {
-        let view = IssueListView::new(&store.config, &issues, filtered)?;
-        print_json(&view, true)
-    } else {
-        let palette = HumanPalette::stdout();
-        print_issue_summaries(&palette, &issues, &filtered)
-    }
+    emit_issue_list(&store.config, &issues, selection, json)
 }
 
-fn ready(_args: ReadyArgs, json: bool) -> Result<()> {
+fn ready(args: &ReadyArgs, json: bool) -> Result<()> {
     let store = Store::open(Path::new("."))?;
     let issues = store.load_issues()?;
     let by_id = issue_map(&issues);
@@ -519,13 +532,37 @@ fn ready(_args: ReadyArgs, json: bool) -> Result<()> {
         }
     }
     sort_issue_refs(&mut ready);
+    let limit = args.limit.unwrap_or(store.config.default_list_limit);
+    let selection = LimitedIssueSelection::new(ready, limit);
 
+    emit_issue_list(&store.config, &issues, selection, json)
+}
+
+fn emit_issue_list(
+    config: &Config,
+    all_issues: &[Issue],
+    selection: LimitedIssueSelection<'_>,
+    json: bool,
+) -> Result<()> {
     if json {
-        let view = IssueListView::new(&store.config, &issues, ready)?;
+        let view = IssueListView::new(config, all_issues, selection.issues, selection.stats)?;
         print_json(&view, true)
     } else {
         let palette = HumanPalette::stdout();
-        print_issue_summaries(&palette, &issues, &ready)
+        print_issue_summaries(&palette, all_issues, &selection.issues)?;
+        print_limit_footer(&selection.stats);
+        Ok(())
+    }
+}
+
+fn print_limit_footer(stats: &IssueListStats) {
+    if stats.skipped() > 0 {
+        println!(
+            "Showing {} of {} tasks; {} hidden by limit. Use -n <COUNT> to change the limit.",
+            stats.shown(),
+            stats.total(),
+            stats.skipped()
+        );
     }
 }
 
@@ -1204,6 +1241,24 @@ fn default_actor() -> String {
     env::var("GITRACK_ACTOR")
         .or_else(|_| env::var("USER"))
         .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Selected issues after applying the list limit, plus stats about truncation.
+struct LimitedIssueSelection<'issues> {
+    /// Issues to render after the selected task set has been truncated.
+    issues: Vec<&'issues Issue>,
+    /// Counts computed before and after truncating the selected task set.
+    stats: IssueListStats,
+}
+
+impl<'issues> LimitedIssueSelection<'issues> {
+    fn new(mut issues: Vec<&'issues Issue>, limit: usize) -> Self {
+        let total = issues.len();
+        issues.truncate(limit);
+        let shown = issues.len();
+        let stats = IssueListStats::new(limit, total, shown);
+        Self { issues, stats }
+    }
 }
 
 /// Issues loaded for `gitrack ref`, plus whether aliases need full repair.

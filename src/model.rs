@@ -17,6 +17,7 @@ use crate::error::{
 pub(crate) const STORE_VERSION: u32 = 1;
 pub(crate) const DEFAULT_ISSUE_TYPE: &str = "task";
 pub(crate) const DEFAULT_ISSUE_PRIORITY: u8 = 3;
+pub(crate) const DEFAULT_LIST_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Config {
@@ -26,6 +27,8 @@ pub(crate) struct Config {
     #[serde(rename = "default_type")]
     pub(crate) default_issue_type: IssueKind,
     pub(crate) default_priority: u8,
+    #[serde(default = "default_list_limit")]
+    pub(crate) default_list_limit: usize,
 }
 
 impl Config {
@@ -41,8 +44,13 @@ impl Config {
             issue_dir,
             default_issue_type,
             default_priority,
+            default_list_limit: DEFAULT_LIST_LIMIT,
         }
     }
+}
+
+const fn default_list_limit() -> usize {
+    DEFAULT_LIST_LIMIT
 }
 
 /// Validated user-visible issue reference, serialised as a plain string.

@@ -59,6 +59,7 @@ This project uses [`gitrack`](https://github.com/Bathtor/gitrack) for Git-native
 - Use `gitrack` for project issue tracking.
 - Prefer `--json` for agent-driven workflows.
 - Use `gitrack ready --json` to find unblocked open work.
+- Check `stats.skipped` in `gitrack list --json` and `gitrack ready --json` output; rerun with `-n <COUNT>` when the default limit hides needed work.
 - Use `gitrack show <ref> --json` before changing an issue.
 - Use `gitrack claim <ref> --assignee <name> --json` before starting assigned work.
 - Use `gitrack update <ref> --body <text> --json` to keep the current issue description and plan up to date.
@@ -90,7 +91,7 @@ This project uses [`gitrack`](https://github.com/Bathtor/gitrack) for Git-native
 
 #### Core Loop
 
-1. Check ready work with `gitrack ready --json`.
+1. Check ready work with `gitrack ready --json`, then inspect `stats` to see whether the result was limited.
 2. Claim the selected issue with `gitrack claim <ref> --assignee <name> --json`.
 3. Read the issue with `gitrack show <ref> --json`.
 4. Set `status_reason = "planning"` while preparing the implementation plan.
