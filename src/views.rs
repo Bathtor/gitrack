@@ -761,6 +761,7 @@ struct IssueView {
     title: String,
     body: String,
     status: IssueStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
     status_reason: Option<String>,
     #[serde(rename = "type")]
     kind: IssueKind,
@@ -775,6 +776,7 @@ struct IssueView {
     ready: bool,
     created_at: String,
     updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     closed_at: Option<String>,
     comments: Vec<Comment>,
 }
@@ -845,7 +847,9 @@ struct DependencyView {
     #[serde(rename = "ref")]
     reference: Option<IssueRef>,
     status: Option<IssueStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     status_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     closed_at: Option<String>,
 }
 

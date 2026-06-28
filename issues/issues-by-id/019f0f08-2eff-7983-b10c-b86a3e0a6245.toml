@@ -1,0 +1,18 @@
+id = "019f0f08-2eff-7983-b10c-b86a3e0a6245"
+ref = "gitrack-6pz"
+title = "Omit absent optional fields from JSON views"
+body = "Plan agreed: keep dependency status explicit, but add skip_serializing_if = Option::is_none to optional JSON view fields such as status_reason and closed_at so absent values are omitted instead of emitted as null. Update CLI coverage that currently expects explicit nulls."
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 3
+assignee = "codex"
+created_at = "2026-06-28T16:20:22.399184Z"
+updated_at = "2026-06-28T16:26:10.220387Z"
+closed_at = "2026-06-28T16:26:10.220387Z"
+
+[[comments]]
+id = "019f0f0d-7dac-7ad2-b09d-8fee175d231d"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-28T16:26:10.220387Z"

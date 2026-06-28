@@ -41,8 +41,11 @@ fn cli_tracks_blocked_and_ready_work() {
         setup_ref
     );
     assert_eq!(command_issue["blocked_by"][0]["status"], "open");
-    assert_eq!(command_issue["blocked_by"][0]["status_reason"], Value::Null);
-    assert_eq!(command_issue["blocked_by"][0]["closed_at"], Value::Null);
+    let blocker = command_issue["blocked_by"][0]
+        .as_object()
+        .expect("blocker object");
+    assert!(!blocker.contains_key("status_reason"));
+    assert!(!blocker.contains_key("closed_at"));
     assert_eq!(command_issue["ready"], false);
 
     let ready_before_close = run_json(&workdir, &["--json", "ready"]);
