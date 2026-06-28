@@ -40,12 +40,31 @@ fn cli_tracks_blocked_and_ready_work() {
             .expect("blocker ref"),
         setup_ref
     );
+    assert_eq!(command_issue["blocked_by"][0]["status"], "open");
+    assert_eq!(command_issue["blocked_by"][0]["status_reason"], Value::Null);
+    assert_eq!(command_issue["blocked_by"][0]["closed_at"], Value::Null);
     assert_eq!(command_issue["ready"], false);
 
     let ready_before_close = run_json(&workdir, &["--json", "ready"]);
     assert_refs(&ready_before_close, &[setup_ref.as_str()]);
 
-    run_json(&workdir, &["--json", "close", &setup_ref]);
+    run_json(
+        &workdir,
+        &["--json", "close", &setup_ref, "--reason", "completed"],
+    );
+
+    let command_after_close = run_json(&workdir, &["--json", "show", &command_ref]);
+    assert_eq!(command_after_close["blocked_by"][0]["status"], "closed");
+    assert_eq!(
+        command_after_close["blocked_by"][0]["status_reason"],
+        "completed"
+    );
+    assert!(
+        command_after_close["blocked_by"][0]["closed_at"]
+            .as_str()
+            .expect("blocker closed_at")
+            .contains('T')
+    );
 
     let ready_after_close = run_json(&workdir, &["--json", "ready"]);
     assert_refs(&ready_after_close, &[command_ref.as_str()]);

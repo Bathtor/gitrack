@@ -824,16 +824,20 @@ struct DependencyView {
     id: Uuid,
     #[serde(rename = "ref")]
     reference: Option<IssueRef>,
+    status: Option<IssueStatus>,
+    status_reason: Option<String>,
+    closed_at: Option<String>,
 }
 
 impl DependencyView {
     fn from_id(issues: &[Issue], id: Uuid) -> Self {
+        let issue = issues.iter().find(|issue| issue.id == id);
         Self {
             id,
-            reference: issues
-                .iter()
-                .find(|issue| issue.id == id)
-                .map(|issue| issue.reference.clone()),
+            reference: issue.map(|issue| issue.reference.clone()),
+            status: issue.map(|issue| issue.status),
+            status_reason: issue.and_then(|issue| issue.status_reason.clone()),
+            closed_at: issue.and_then(|issue| issue.closed_at.clone()),
         }
     }
 }
