@@ -1090,6 +1090,8 @@ fn agents_update_replaces_managed_block_and_appends_workflow() {
     assert_eq!(update["workflow_section"], "created");
     assert_eq!(update["changed"], true);
     assert!(agents_content.contains("Git-native issue tracking"));
+    assert!(agents_content.contains("gitrack create \"<title>\" --body \"<body>\" --json"));
+    assert!(agents_content.contains("Avoid manual `--ref` naming where possible"));
     assert!(agents_content.contains("## Suggested gitrack Workflow"));
     assert!(agents_content.contains("#### Core Loop"));
     assert!(agents_content.contains("#### When Work Splits Into Children"));
