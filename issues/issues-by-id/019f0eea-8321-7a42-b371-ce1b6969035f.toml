@@ -1,0 +1,18 @@
+id = "019f0eea-8321-7a42-b371-ce1b6969035f"
+ref = "gitrack-zl9"
+title = "Reuse issue index during view rendering"
+body = "Plan agreed: introduce a small view-layer IssueIndex wrapping UUID-to-issue lookups; pass it through human summary/detail rendering and JSON IssueView construction; build it once for list/export views instead of rebuilding maps per issue; keep CLI output unchanged and validate with existing tests plus formatting/clippy."
+status = "closed"
+status_reason = "completed"
+type = "task"
+priority = 3
+assignee = "codex"
+created_at = "2026-06-28T15:47:57.857251Z"
+updated_at = "2026-06-28T16:17:46.315811Z"
+closed_at = "2026-06-28T16:17:46.315811Z"
+
+[[comments]]
+id = "019f0f05-cd4b-7232-8dd3-bb66cb991c42"
+author = "lkroll"
+body = "completed"
+created_at = "2026-06-28T16:17:46.315811Z"

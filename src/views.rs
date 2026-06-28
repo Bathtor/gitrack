@@ -28,17 +28,18 @@ pub(crate) fn emit_issue(
     issue: &Issue,
     json: bool,
 ) -> Result<()> {
+    let index = IssueIndex::new(issues);
     if json {
-        print_json(&IssueView::from_issue(config, issues, issue)?, true)
+        print_json(&IssueView::from_issue(config, &index, issue)?, true)
     } else {
         let palette = HumanPalette::stdout();
-        print_issue_summary(&palette, issues, issue);
+        print_issue_summary(&palette, &index, issue);
         Ok(())
     }
 }
 
-pub(crate) fn print_issue_summary(palette: &HumanPalette, issues: &[Issue], issue: &Issue) {
-    println!("{}", issue_summary_line(palette, issues, issue));
+fn print_issue_summary(palette: &HumanPalette, index: &IssueIndex<'_>, issue: &Issue) {
+    println!("{}", issue_summary_line(palette, index, issue));
 }
 
 pub(crate) fn print_issue_summaries(
@@ -46,9 +47,10 @@ pub(crate) fn print_issue_summaries(
     issues: &[Issue],
     selected: &[&Issue],
 ) -> Result<()> {
-    let roots = summary_tree_with_ancestors(issues, selected)?;
+    let index = IssueIndex::new(issues);
+    let roots = summary_tree_with_ancestors(&index, selected)?;
     for root in &roots {
-        print_issue_summary_node(palette, issues, root, 0);
+        print_issue_summary_node(palette, &index, root, 0);
     }
     Ok(())
 }
@@ -57,13 +59,13 @@ pub(crate) fn sort_issue_refs(issues: &mut [&Issue]) {
     issues.sort_by(|left, right| issue_order(left, right));
 }
 
-fn issue_summary_line(palette: &HumanPalette, issues: &[Issue], issue: &Issue) -> String {
-    let blocked = is_blocked_by_unresolved_issue(issues, issue);
+fn issue_summary_line(palette: &HumanPalette, index: &IssueIndex<'_>, issue: &Issue) -> String {
+    let blocked = is_blocked_by_unresolved_issue(index, issue);
     let marker = palette.paint(status_role(issue, blocked), status_marker(issue, blocked));
     let reference = palette.paint(HumanRole::IssueRef, issue.reference.to_string());
     let title = palette.paint(HumanRole::Title, &issue.title);
     let badge = summary_badge(palette, issue, blocked);
-    let blocker_note = blocking_summary(issues, issue)
+    let blocker_note = blocking_summary(index, issue)
         .map(|summary| format!("  {}", palette.paint(HumanRole::Blocked, summary)))
         .unwrap_or_default();
 
@@ -72,9 +74,9 @@ fn issue_summary_line(palette: &HumanPalette, issues: &[Issue], issue: &Issue) -
 
 pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Issue) -> Result<()> {
     let palette = HumanPalette::stdout();
-    let by_id = issue_map(issues);
-    let ready = issue_is_ready(issue, &by_id)?;
-    let blocked = is_blocked_by_unresolved_issue(issues, issue);
+    let index = IssueIndex::new(issues);
+    let ready = issue_is_ready(issue, index.by_id())?;
+    let blocked = is_blocked_by_unresolved_issue(&index, issue);
     let marker = palette.paint(status_role(issue, blocked), status_marker(issue, blocked));
     let reference = palette.paint(HumanRole::IssueRef, issue.reference.to_string());
     let kind = palette.paint(HumanRole::IssueKind, issue.kind.as_str().to_uppercase());
@@ -82,7 +84,7 @@ pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Iss
     let badge = detail_badge(&palette, issue, blocked);
 
     println!("{marker} {reference} [{kind}] · {title}   [{badge}]");
-    println!("{}", metadata_line(&palette, issues, issue, ready, blocked));
+    println!("{}", metadata_line(&palette, &index, issue, ready, blocked));
     println!("{}", timestamp_line(issue));
     println!("{}", palette.paint(HumanRole::Muted, uuid_line(issue)));
 
@@ -94,21 +96,21 @@ pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Iss
     if !issue.children.is_empty() {
         print_section_heading(&palette, "CHILDREN");
         for child_id in &issue.children {
-            println!("  {}", dependency_summary(&palette, issues, *child_id));
+            println!("  {}", dependency_summary(&palette, &index, *child_id));
         }
     }
 
     if !issue.blocked_by.is_empty() {
         print_section_heading(&palette, "BLOCKERS");
         for blocker_id in &issue.blocked_by {
-            println!("  {}", dependency_summary(&palette, issues, *blocker_id));
+            println!("  {}", dependency_summary(&palette, &index, *blocker_id));
         }
     }
 
     if !issue.blocks.is_empty() {
         print_section_heading(&palette, "BLOCKS");
         for blocked_id in &issue.blocks {
-            println!("  {}", dependency_summary(&palette, issues, *blocked_id));
+            println!("  {}", dependency_summary(&palette, &index, *blocked_id));
         }
     }
 
@@ -116,7 +118,7 @@ pub(crate) fn print_issue_detail(_config: &Config, issues: &[Issue], issue: &Iss
         print_section_heading(&palette, "LINKS");
         for link in &issue.links {
             let label = palette.paint(HumanRole::Label, &link.label);
-            let target = dependency_summary(&palette, issues, link.target);
+            let target = dependency_summary(&palette, &index, link.target);
             println!("  {label}: {target}");
         }
     }
@@ -218,9 +220,10 @@ pub(crate) struct ExportView {
 
 impl ExportView {
     pub(crate) fn new(config: &Config, issues: &[Issue]) -> Result<Self> {
+        let index = IssueIndex::new(issues);
         let mut issue_views = Vec::with_capacity(issues.len());
         for issue in issues {
-            let issue_view = IssueView::from_issue(config, issues, issue)?;
+            let issue_view = IssueView::from_issue(config, &index, issue)?;
             issue_views.push(issue_view);
         }
 
@@ -244,9 +247,10 @@ impl IssueListView {
         issues: Vec<&Issue>,
         stats: IssueListStats,
     ) -> Result<Self> {
+        let index = IssueIndex::new(all_issues);
         let mut issue_views = Vec::with_capacity(issues.len());
         for issue in issues {
-            let issue_view = IssueView::from_issue(config, all_issues, issue)?;
+            let issue_view = IssueView::from_issue(config, &index, issue)?;
             issue_views.push(issue_view);
         }
 
@@ -306,22 +310,41 @@ struct DisplayIssueNode<'issues> {
     children: Vec<DisplayIssueNode<'issues>>,
 }
 
+/// Lookup table shared across one rendering pass.
+#[derive(Debug)]
+struct IssueIndex<'issues> {
+    by_id: HashMap<Uuid, &'issues Issue>,
+}
+
+impl<'issues> IssueIndex<'issues> {
+    fn new(issues: &'issues [Issue]) -> Self {
+        Self {
+            by_id: issue_map(issues),
+        }
+    }
+
+    fn get(&self, id: Uuid) -> Option<&'issues Issue> {
+        self.by_id.get(&id).copied()
+    }
+
+    fn by_id(&self) -> &HashMap<Uuid, &'issues Issue> {
+        &self.by_id
+    }
+}
+
 fn print_section_heading(palette: &HumanPalette, heading: &str) {
     println!();
     println!("{}", palette.paint(HumanRole::SectionHeading, heading));
 }
 
 fn summary_tree_with_ancestors<'issues>(
-    issues: &'issues [Issue],
+    index: &IssueIndex<'issues>,
     selected: &[&'issues Issue],
 ) -> Result<Vec<DisplayIssueNode<'issues>>> {
-    let by_id = issues
-        .iter()
-        .map(|issue| (issue.id, issue))
-        .collect::<HashMap<_, _>>();
+    let by_id = index.by_id();
     let mut included = HashSet::new();
     for issue in selected {
-        include_ancestor_chain(issue, &by_id, &mut included)?;
+        include_ancestor_chain(issue, by_id, &mut included)?;
     }
 
     let mut roots = Vec::new();
@@ -344,15 +367,15 @@ fn summary_tree_with_ancestors<'issues>(
         }
     }
 
-    sort_issue_ids(&mut roots, &by_id)?;
+    sort_issue_ids(&mut roots, by_id)?;
     for child_ids in children_by_parent.values_mut() {
-        sort_issue_ids(child_ids, &by_id)?;
+        sort_issue_ids(child_ids, by_id)?;
     }
 
     let mut path = Vec::new();
     roots
         .into_iter()
-        .map(|id| build_issue_summary_node(id, &by_id, &children_by_parent, &mut path))
+        .map(|id| build_issue_summary_node(id, by_id, &children_by_parent, &mut path))
         .collect()
 }
 
@@ -448,11 +471,11 @@ fn build_issue_summary_node<'issues>(
 
 fn print_issue_summary_node(
     palette: &HumanPalette,
-    issues: &[Issue],
+    index: &IssueIndex<'_>,
     node: &DisplayIssueNode<'_>,
     depth: usize,
 ) {
-    let line = issue_summary_line(palette, issues, node.issue);
+    let line = issue_summary_line(palette, index, node.issue);
     if depth == 0 {
         println!("{line}");
     } else {
@@ -461,7 +484,7 @@ fn print_issue_summary_node(
     }
 
     for child in &node.children {
-        print_issue_summary_node(palette, issues, child, depth + 1);
+        print_issue_summary_node(palette, index, child, depth + 1);
     }
 }
 
@@ -491,7 +514,7 @@ fn detail_badge(palette: &HumanPalette, issue: &Issue, blocked: bool) -> String 
 
 fn metadata_line(
     palette: &HumanPalette,
-    issues: &[Issue],
+    index: &IssueIndex<'_>,
     issue: &Issue,
     ready: bool,
     blocked: bool,
@@ -511,7 +534,7 @@ fn metadata_line(
     if let Some(parent_id) = issue.parent {
         parts.insert(
             1,
-            format!("Parent: {}", issue_ref_or_uuid(palette, issues, parent_id)),
+            format!("Parent: {}", issue_ref_or_uuid(palette, index, parent_id)),
         );
     }
     if let Some(status_reason) = &issue.status_reason {
@@ -530,8 +553,8 @@ fn metadata_line(
     parts.join(" · ")
 }
 
-fn issue_ref_or_uuid(palette: &HumanPalette, issues: &[Issue], id: Uuid) -> String {
-    issues.iter().find(|issue| issue.id == id).map_or_else(
+fn issue_ref_or_uuid(palette: &HumanPalette, index: &IssueIndex<'_>, id: Uuid) -> String {
+    index.get(id).map_or_else(
         || palette.paint(HumanRole::Blocked, id.to_string()),
         |issue| palette.paint(HumanRole::IssueRef, issue.reference.to_string()),
     )
@@ -631,23 +654,21 @@ fn status_role(issue: &Issue, blocked: bool) -> HumanRole {
     }
 }
 
-fn is_blocked_by_unresolved_issue(issues: &[Issue], issue: &Issue) -> bool {
+fn is_blocked_by_unresolved_issue(index: &IssueIndex<'_>, issue: &Issue) -> bool {
     issue.blocked_by.iter().any(|id| {
-        issues
-            .iter()
-            .find(|candidate| candidate.id == *id)
+        index
+            .get(*id)
             .is_some_and(|blocker| !blocker.status.is_resolved())
     })
 }
 
-fn blocking_summary(issues: &[Issue], issue: &Issue) -> Option<String> {
+fn blocking_summary(index: &IssueIndex<'_>, issue: &Issue) -> Option<String> {
     let blockers = issue
         .blocked_by
         .iter()
         .filter_map(|id| {
-            issues
-                .iter()
-                .find(|candidate| candidate.id == *id)
+            index
+                .get(*id)
                 .filter(|blocker| !blocker.status.is_resolved())
                 .map(|blocker| blocker.reference.to_string())
         })
@@ -660,9 +681,9 @@ fn blocking_summary(issues: &[Issue], issue: &Issue) -> Option<String> {
     }
 }
 
-fn dependency_summary(palette: &HumanPalette, issues: &[Issue], id: Uuid) -> String {
-    if let Some(issue) = issues.iter().find(|candidate| candidate.id == id) {
-        let blocked = is_blocked_by_unresolved_issue(issues, issue);
+fn dependency_summary(palette: &HumanPalette, index: &IssueIndex<'_>, id: Uuid) -> String {
+    if let Some(issue) = index.get(id) {
+        let blocked = is_blocked_by_unresolved_issue(index, issue);
         let marker = palette.paint(status_role(issue, blocked), status_marker(issue, blocked));
         let reference = palette.paint(HumanRole::IssueRef, issue.reference.to_string());
         let title = palette.paint(HumanRole::Title, &issue.title);
@@ -759,8 +780,7 @@ struct IssueView {
 }
 
 impl IssueView {
-    fn from_issue(_config: &Config, issues: &[Issue], issue: &Issue) -> Result<Self> {
-        let by_id = issue_map(issues);
+    fn from_issue(_config: &Config, index: &IssueIndex<'_>, issue: &Issue) -> Result<Self> {
         Ok(Self {
             id: issue.id,
             reference: issue.reference.clone(),
@@ -775,27 +795,27 @@ impl IssueView {
             blocked_by: issue
                 .blocked_by
                 .iter()
-                .map(|id| DependencyView::from_id(issues, *id))
+                .map(|id| DependencyView::from_id(index, *id))
                 .collect(),
             blocks: issue
                 .blocks
                 .iter()
-                .map(|id| DependencyView::from_id(issues, *id))
+                .map(|id| DependencyView::from_id(index, *id))
                 .collect(),
             parent: issue
                 .parent
-                .map(|parent_id| DependencyView::from_id(issues, parent_id)),
+                .map(|parent_id| DependencyView::from_id(index, parent_id)),
             children: issue
                 .children
                 .iter()
-                .map(|id| DependencyView::from_id(issues, *id))
+                .map(|id| DependencyView::from_id(index, *id))
                 .collect(),
             links: issue
                 .links
                 .iter()
-                .map(|link| LinkView::from_link(issues, link))
+                .map(|link| LinkView::from_link(index, link))
                 .collect(),
-            ready: issue_is_ready(issue, &by_id)?,
+            ready: issue_is_ready(issue, index.by_id())?,
             created_at: issue.created_at.clone(),
             updated_at: issue.updated_at.clone(),
             closed_at: issue.closed_at.clone(),
@@ -811,9 +831,9 @@ struct LinkView {
 }
 
 impl LinkView {
-    fn from_link(issues: &[Issue], link: &IssueLink) -> Self {
+    fn from_link(index: &IssueIndex<'_>, link: &IssueLink) -> Self {
         Self {
-            target: DependencyView::from_id(issues, link.target),
+            target: DependencyView::from_id(index, link.target),
             label: link.label.clone(),
         }
     }
@@ -830,8 +850,8 @@ struct DependencyView {
 }
 
 impl DependencyView {
-    fn from_id(issues: &[Issue], id: Uuid) -> Self {
-        let issue = issues.iter().find(|issue| issue.id == id);
+    fn from_id(index: &IssueIndex<'_>, id: Uuid) -> Self {
+        let issue = index.get(id);
         Self {
             id,
             reference: issue.map(|issue| issue.reference.clone()),
@@ -897,8 +917,9 @@ mod tests {
         issue.parent = Some(parent.id);
         issue.status_reason = Some("in review".to_string());
         let issues = vec![parent, issue.clone()];
+        let index = IssueIndex::new(&issues);
 
-        let line = metadata_line(&palette, &issues, &issue, false, false);
+        let line = metadata_line(&palette, &index, &issue, false, false);
 
         assert!(line.contains(&format!(
             "Owner: {}",
@@ -967,8 +988,8 @@ mod tests {
         child.parent = Some(parent.id);
         let issues = vec![parent, child];
 
-        let error =
-            summary_tree_with_ancestors(&issues, &[&issues[0]]).expect_err("cycle rejected");
+        let index = IssueIndex::new(&issues);
+        let error = summary_tree_with_ancestors(&index, &[&issues[0]]).expect_err("cycle rejected");
 
         assert!(matches!(error, Error::HierarchyCycle { .. }));
     }
